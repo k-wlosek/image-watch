@@ -35,15 +35,12 @@ func matchBaseFamily(s string) (family string, ver SemVer, ok bool) {
 	}
 	family = m[1]
 	if m[2] == "" {
-		// Recognized family name with no attached version (e.g. plain
-		// "1.2.3-alpine"). Still a valid, high-confidence recognition -
-		// just nothing to compare for base-advancement purposes.
+		// Recognized family name with no attached version.
 		return family, SemVer{}, true
 	}
 	v, err := ParseSemVer(m[2])
 	if err != nil {
-		// Matched the family name but the trailing digits weren't a
-		// clean version core; treat as recognized family, no version.
+		// Matched the family name but not a clean version core.
 		return family, SemVer{}, true
 	}
 	return family, v, true
@@ -58,5 +55,5 @@ func (t TagVersion) FamilyAdvancementEligible() bool {
 	if t.IsComposite() {
 		return false
 	}
-	return app.Version.Precision == PrecisionMajor || app.Version.Precision == PrecisionMinor
+	return app.Version.Precision == PrecisionMajor
 }

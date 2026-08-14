@@ -37,6 +37,7 @@ func TestParseTag_BareVersions(t *testing.T) {
 	}
 }
 
+// TestParseTag_Composite covers a composite tag.
 func TestParseTag_Composite(t *testing.T) {
 	tv := ParseTag("1.2.3-alpine3.22")
 	app, ok := tv.Application()
@@ -58,6 +59,7 @@ func TestParseTag_Composite(t *testing.T) {
 	}
 }
 
+// TestParseTag_CompositeNoBaseVersion covers a composite tag with no base version.
 func TestParseTag_CompositeNoBaseVersion(t *testing.T) {
 	tv := ParseTag("1.2.3-alpine")
 	app, ok := tv.Application()
@@ -70,6 +72,7 @@ func TestParseTag_CompositeNoBaseVersion(t *testing.T) {
 	}
 }
 
+// TestParseTag_UnrecognizedSuffixStaysOpaque covers an opaque suffix.
 func TestParseTag_UnrecognizedSuffixStaysOpaque(t *testing.T) {
 	tv := ParseTag("1.2.3-foo42")
 	app, ok := tv.Application()
@@ -81,6 +84,7 @@ func TestParseTag_UnrecognizedSuffixStaysOpaque(t *testing.T) {
 	}
 }
 
+// TestParseTag_PrefixedApplication covers a prefixed application tag.
 func TestParseTag_PrefixedApplication(t *testing.T) {
 	tv := ParseTag("release-1.2.3")
 	app, ok := tv.Application()
@@ -89,6 +93,7 @@ func TestParseTag_PrefixedApplication(t *testing.T) {
 	}
 }
 
+// TestParseTag_FullyOpaque covers an opaque tag.
 func TestParseTag_FullyOpaque(t *testing.T) {
 	tv := ParseTag("edge")
 	if !tv.IsOpaque() {
@@ -96,16 +101,17 @@ func TestParseTag_FullyOpaque(t *testing.T) {
 	}
 }
 
+// TestFamilyAdvancementEligible checks family advancement eligibility.
 func TestFamilyAdvancementEligible(t *testing.T) {
 	cases := []struct {
 		raw  string
 		want bool
 	}{
-		{"16", true},         // standalone imprecise -> eligible
-		{"16.2", true},       // standalone imprecise (minor) -> eligible
-		{"16.2.3", false},    // precise patch tag -> not family advancement
-		{"16-alpine", false}, // composite + imprecise app -> excluded
-		{"edge", false},      // opaque -> not eligible
+		{"16", true},
+		{"16.2", false},
+		{"16.2.3", false},
+		{"16-alpine", false},
+		{"edge", false},
 	}
 	for _, c := range cases {
 		tv := ParseTag(c.raw)
@@ -115,6 +121,7 @@ func TestFamilyAdvancementEligible(t *testing.T) {
 	}
 }
 
+// TestSemVerCompare checks basic ordering.
 func TestSemVerCompare(t *testing.T) {
 	a, _ := ParseSemVer("1.2.3")
 	b, _ := ParseSemVer("1.2.4")
