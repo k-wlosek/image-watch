@@ -16,6 +16,9 @@ type Registry interface {
 	// Resolve fetches manifest/index metadata for a repository+reference
 	// (tag or digest). It must not pull image content.
 	Resolve(ctx context.Context, repository string, reference string) (ManifestObservation, error)
+
+	// ResolveForPlatform resolves a reference for a specific platform.
+	ResolveForPlatform(ctx context.Context, repository string, reference string, platform image.Platform) (ManifestObservation, error)
 }
 
 // ManifestObservation is the result of resolving a registry reference.

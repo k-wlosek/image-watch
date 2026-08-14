@@ -1,7 +1,11 @@
 // Package policy defines which detected events should be notified.
 package policy
 
-import "github.com/example/image-watch/internal/event"
+import (
+	"strings"
+
+	"github.com/example/image-watch/internal/event"
+)
 
 // Policy controls which detected event categories are eligible for notification.
 type Policy struct {
@@ -67,7 +71,7 @@ func (p Policy) Merge(other Policy) Policy {
 	}
 }
 
-// MergeAll folds a slice of policies into one effective policy.
+// MergeAll folds a slice of policies into one.
 func MergeAll(policies []Policy) Policy {
 	if len(policies) == 0 {
 		return Default()
@@ -77,4 +81,51 @@ func MergeAll(policies []Policy) Policy {
 		result = result.Merge(p)
 	}
 	return result
+}
+
+// labelPrefix is the container-label namespace for policy overrides.
+const labelPrefix = "image-watch.policy."
+
+// ApplyLabels overlays image-watch.policy.* container label overrides on top of a base policy.
+func ApplyLabels(base Policy, labels map[string]string) Policy {
+	result := base
+	for key, value := range labels {
+		if !strings.HasPrefix(key, labelPrefix) {
+			continue
+		}
+		b, ok := parseBool(value)
+		if !ok {
+			continue
+		}
+		switch strings.TrimPrefix(key, labelPrefix) {
+		case "patch":
+			result.Patch = b
+		case "minor":
+			result.Minor = b
+		case "major":
+			result.Major = b
+		case "family-advancement":
+			result.FamilyAdvancement = b
+		case "base-advancement":
+			result.BaseAdvancement = b
+		case "tag-changed":
+			result.TagChanged = b
+		case "tag-mutation":
+			result.TagMutated = b
+		case "other-platform":
+			result.OtherPlatform = b
+		}
+	}
+	return result
+}
+
+func parseBool(s string) (bool, bool) {
+	switch s {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	default:
+		return false, false
+	}
 }

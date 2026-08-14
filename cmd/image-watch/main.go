@@ -4,11 +4,15 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/example/image-watch/internal/config"
+	"github.com/example/image-watch/internal/event"
+	"github.com/example/image-watch/internal/observer"
 )
 
 var version = "dev"
@@ -42,11 +46,79 @@ func runDaemon() {
 
 // runCheck performs one check-and-exit cycle
 func runCheck() {
-	os.Exit(1)
+	cfg := config.Default()
+
+	obs, err := buildObserver(cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "image-watch check:", err)
+		os.Exit(1)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	results, err := obs.Check(ctx)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "image-watch check: failed to list running containers:", err)
+		os.Exit(1)
+	}
+
+	if len(results) == 0 {
+		fmt.Println("no monitored images (no running containers with tagged, non-digest-pinned images)")
+		return
+	}
+
+	exitCode := 0
+	for _, r := range results {
+		printResult(r)
+		if r.Err != nil {
+			exitCode = 1
+		}
+	}
+	os.Exit(exitCode)
 }
 
-// runHealthcheck queries the daemon's own /healthz endpoint and exits 0
-// if healthy, non-zero otherwise
+func printResult(r observer.Result) {
+	fmt.Printf("\n%s:%s (%s)\n", r.Image.Registry+"/"+r.Image.Repository, r.Image.TagOrEmpty(), r.Platform.String())
+	fmt.Printf("  containers: %v\n", r.ContainerNames)
+	fmt.Printf("  policy:     %s\n", enabledCategories(r.EffectivePolicy))
+
+	if r.Err != nil {
+		status := "error"
+		if r.Stale {
+			status = "stale (using last known state)"
+		}
+		fmt.Printf("  status:     %s: %v\n", status, r.Err)
+		return
+	}
+
+	if len(r.Events) == 0 {
+		fmt.Println("  no updates detected")
+		return
+	}
+	for _, e := range r.Events {
+		printEvent(e)
+	}
+}
+
+func printEvent(e event.Event) {
+	switch e.Type {
+	case event.TagChanged, event.TagMutated:
+		candidate := ""
+		if e.CandidateTag != "" {
+			candidate = fmt.Sprintf(" (inferred version: %s)", e.CandidateTag)
+		}
+		fmt.Printf("  [%s] %s -> %s%s\n", e.Type, e.CurrentDigest, e.CandidateDigest, candidate)
+	default:
+		combined := ""
+		if e.CombinedCandidate != "" {
+			combined = fmt.Sprintf(" (combined: %s)", e.CombinedCandidate)
+		}
+		fmt.Printf("  [%s] %s -> %s%s\n", e.Type, e.CurrentTag, e.CandidateTag, combined)
+	}
+}
+
+// runHealthcheck queries the daemon's own /healthz endpoint.
 func runHealthcheck() int {
 	resp, err := http.Get("http://127.0.0.1:9090/healthz")
 	if err != nil {
