@@ -20,6 +20,11 @@ func buildObserver(cfg config.Config) (*observer.Observer, error) {
 		return nil, fmt.Errorf("failed to initialize docker runtime: %w", err)
 	}
 
+	store, err := state.NewSQLiteStore(cfg.State.Path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open state store at %s: %w", cfg.State.Path, err)
+	}
+
 	registryClients := make(map[string]registry.Registry)
 	resolver := func(host string) registry.Registry {
 		if c, ok := registryClients[host]; ok {
@@ -33,7 +38,7 @@ func buildObserver(cfg config.Config) (*observer.Observer, error) {
 	return &observer.Observer{
 		Runtime:       dockerClient,
 		Registries:    resolver,
-		Store:         state.NewMemoryStore(),
+		Store:         store,
 		DefaultPolicy: cfg.Policy,
 	}, nil
 }
