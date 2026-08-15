@@ -89,7 +89,7 @@ func TestSQLiteStore_DurableAcrossRestart(t *testing.T) {
 	key := Key{Registry: "ghcr.io", Repository: "acme/foo", Tag: "1.2.3", Platform: image.Platform{OS: "linux", Architecture: "arm64"}}
 	obs := Observation{Key: key, PlatformManifestDigest: "sha256:cccc", Status: StatusFresh}
 
-	// "Process 1": write and close, simulating one poll cycle.
+	// "Process 1": write and close.
 	s1, err := NewSQLiteStore(path)
 	if err != nil {
 		t.Fatalf("NewSQLiteStore (process 1) error: %v", err)
@@ -117,6 +117,66 @@ func TestSQLiteStore_DurableAcrossRestart(t *testing.T) {
 	}
 	if got.PlatformManifestDigest != "sha256:cccc" {
 		t.Errorf("got %q, want sha256:cccc", got.PlatformManifestDigest)
+	}
+}
+
+func TestSQLiteStore_NotificationDedup(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewSQLiteStore(filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore error: %v", err)
+	}
+	defer s.Close()
+
+	fp := "abc123fingerprint"
+
+	notified, err := s.HasNotified(context.Background(), fp)
+	if err != nil {
+		t.Fatalf("HasNotified error: %v", err)
+	}
+	if notified {
+		t.Fatalf("expected fingerprint to be unnotified before MarkNotified")
+	}
+
+	if err := s.MarkNotified(context.Background(), fp); err != nil {
+		t.Fatalf("MarkNotified error: %v", err)
+	}
+
+	notified, err = s.HasNotified(context.Background(), fp)
+	if err != nil {
+		t.Fatalf("HasNotified error: %v", err)
+	}
+	if !notified {
+		t.Fatalf("expected fingerprint to be notified after MarkNotified")
+	}
+}
+
+func TestSQLiteStore_NotificationDedupSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.db")
+	fp := "restart-fingerprint"
+
+	s1, err := NewSQLiteStore(path)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore (process 1) error: %v", err)
+	}
+	if err := s1.MarkNotified(context.Background(), fp); err != nil {
+		t.Fatalf("MarkNotified error: %v", err)
+	}
+	s1.Close()
+
+	s2, err := NewSQLiteStore(path)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore (process 2) error: %v", err)
+	}
+	defer s2.Close()
+
+	notified, err := s2.HasNotified(context.Background(), fp)
+	if err != nil {
+		t.Fatalf("HasNotified error: %v", err)
+	}
+	if !notified {
+		t.Fatalf("expected notification dedup state to survive a restart")
 	}
 }
 

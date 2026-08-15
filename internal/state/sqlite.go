@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -33,6 +34,14 @@ CREATE TABLE IF NOT EXISTS observations (
 );
 `
 
+// createNotificationsTable creates the notification deduplication table.
+const createNotificationsTable = `
+CREATE TABLE IF NOT EXISTS notifications (
+	fingerprint  TEXT PRIMARY KEY,
+	notified_at  DATETIME NOT NULL
+);
+`
+
 // NewSQLiteStore opens or creates a SQLite-backed Store at path.
 func NewSQLiteStore(path string) (*SQLiteStore, error) {
 	if dir := filepath.Dir(path); dir != "." {
@@ -49,7 +58,11 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 
 	if _, err := db.Exec(createObservationsTable); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("state: failed to initialize schema: %w", err)
+		return nil, fmt.Errorf("state: failed to initialize observations schema: %w", err)
+	}
+	if _, err := db.Exec(createNotificationsTable); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("state: failed to initialize notifications schema: %w", err)
 	}
 
 	return &SQLiteStore{db: db}, nil
@@ -124,6 +137,29 @@ func (s *SQLiteStore) PutObservation(ctx context.Context, obs Observation) error
 	)
 	if err != nil {
 		return fmt.Errorf("state: failed to persist observation: %w", err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) HasNotified(ctx context.Context, fingerprint string) (bool, error) {
+	var exists int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM notifications WHERE fingerprint = ?`, fingerprint).Scan(&exists)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("state: failed to query notification fingerprint: %w", err)
+	}
+	return true, nil
+}
+
+func (s *SQLiteStore) MarkNotified(ctx context.Context, fingerprint string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO notifications (fingerprint, notified_at) VALUES (?, ?)
+		ON CONFLICT (fingerprint) DO UPDATE SET notified_at = excluded.notified_at
+	`, fingerprint, time.Now())
+	if err != nil {
+		return fmt.Errorf("state: failed to record notification fingerprint: %w", err)
 	}
 	return nil
 }

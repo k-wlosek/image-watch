@@ -44,17 +44,27 @@ type Observation struct {
 type Store interface {
 	GetObservation(ctx context.Context, key Key) (Observation, bool, error)
 	PutObservation(ctx context.Context, obs Observation) error
+
+	// HasNotified reports whether a notification with this fingerprint has already been delivered.
+	HasNotified(ctx context.Context, fingerprint string) (bool, error)
+
+	// MarkNotified records a fingerprint as delivered.
+	MarkNotified(ctx context.Context, fingerprint string) error
 }
 
 // MemoryStore is an in-memory Store.
 type MemoryStore struct {
-	mu   sync.Mutex
-	data map[Key]Observation
+	mu            sync.Mutex
+	observations  map[Key]Observation
+	notifications map[string]time.Time
 }
 
 // NewMemoryStore constructs an empty in-memory Store.
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{data: make(map[Key]Observation)}
+	return &MemoryStore{
+		observations:  make(map[Key]Observation),
+		notifications: make(map[string]time.Time),
+	}
 }
 
 var _ Store = (*MemoryStore)(nil)
@@ -62,13 +72,27 @@ var _ Store = (*MemoryStore)(nil)
 func (m *MemoryStore) GetObservation(_ context.Context, key Key) (Observation, bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	obs, ok := m.data[key]
+	obs, ok := m.observations[key]
 	return obs, ok, nil
 }
 
 func (m *MemoryStore) PutObservation(_ context.Context, obs Observation) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.data[obs.Key] = obs
+	m.observations[obs.Key] = obs
+	return nil
+}
+
+func (m *MemoryStore) HasNotified(_ context.Context, fingerprint string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.notifications[fingerprint]
+	return ok, nil
+}
+
+func (m *MemoryStore) MarkNotified(_ context.Context, fingerprint string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.notifications[fingerprint] = time.Now()
 	return nil
 }
