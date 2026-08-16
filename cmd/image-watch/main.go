@@ -12,6 +12,8 @@ import (
 
 	"github.com/example/image-watch/internal/config"
 	"github.com/example/image-watch/internal/event"
+	"github.com/example/image-watch/internal/notify"
+	"github.com/example/image-watch/internal/notify/stdout"
 	"github.com/example/image-watch/internal/observer"
 )
 
@@ -68,6 +70,7 @@ func runCheck() {
 		return
 	}
 
+	fmt.Println("detected events (unfiltered)")
 	exitCode := 0
 	for _, r := range results {
 		printResult(r)
@@ -75,6 +78,24 @@ func runCheck() {
 			exitCode = 1
 		}
 	}
+
+	fmt.Println("\nnotification pipeline (policy-filtered, deduped)")
+	note := BuildNotification(ctx, results, obs.Store)
+	if len(note.Items) == 0 {
+		fmt.Println("nothing to notify (either no policy-allowed events, or already notified in a previous run)")
+	} else {
+		notifiers := []notify.Notifier{stdout.New()}
+		delivered, dErr := Deliver(ctx, notifiers, note)
+		if dErr != nil {
+			fmt.Fprintln(os.Stderr, "notification delivery had errors:", dErr)
+		}
+		if delivered {
+			MarkDelivered(ctx, note, obs.Store)
+		} else {
+			exitCode = 1
+		}
+	}
+
 	os.Exit(exitCode)
 }
 
