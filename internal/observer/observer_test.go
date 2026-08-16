@@ -59,6 +59,12 @@ func TestScenario1_StandardSemVer(t *testing.T) {
 	reg := newFakeRegistry()
 	reg.setDigest("acme/foo", "1.2.3", "sha256:current")
 	reg.setTags("acme/foo", []string{"1.2.4", "1.2.5", "1.3.0", "2.0.0"})
+	// Every candidate tag needs a resolvable manifest for the running
+	// platform, matching real registry behavior.
+	reg.setDigest("acme/foo", "1.2.4", "sha256:v124")
+	reg.setDigest("acme/foo", "1.2.5", "sha256:v125")
+	reg.setDigest("acme/foo", "1.3.0", "sha256:v130")
+	reg.setDigest("acme/foo", "2.0.0", "sha256:v200")
 
 	o := newTestObserver(rt, reg)
 	results, err := o.Check(context.Background())
@@ -240,6 +246,45 @@ func TestScenario10_RegistryFailureIsolation(t *testing.T) {
 	}
 	if !sawBadFailure {
 		t.Errorf("expected acme/bad to report a stale, non-nil error result")
+	}
+}
+
+func TestScenario6_OtherPlatform(t *testing.T) {
+	amd64 := image.Platform{OS: "linux", Architecture: "amd64"}
+	arm64 := image.Platform{OS: "linux", Architecture: "arm64"}
+
+	reg := newFakeRegistry()
+	reg.setDigest("acme/foo", "1.2.3", "sha256:current")
+	reg.setTags("acme/foo", []string{"1.2.4"})
+	// 1.2.4 has a manifest, but only for arm64 -- not the amd64 platform
+	// the container is actually running.
+	reg.setPlatforms("acme/foo", "1.2.4", []image.Platform{arm64})
+	reg.setDigest("acme/foo", "1.2.4", "sha256:v124-arm64")
+
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("foo1", "ghcr.io/acme/foo:1.2.3", "sha256:current", amd64),
+	}}
+	o := newTestObserver(rt, reg)
+
+	results, err := o.Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check error: %v", err)
+	}
+	events := results[0].Events
+
+	if p := findEvent(events, event.PatchAvailable); p != nil {
+		t.Errorf("expected NO actionable PATCH_AVAILABLE for an arm64-only candidate on an amd64 host, got %+v", p)
+	}
+	other := findEvent(events, event.OtherPlatformUpdate)
+	if other == nil {
+		t.Fatalf("expected OTHER_PLATFORM_UPDATE to be detected")
+	}
+	if other.CandidateTag != "1.2.4" {
+		t.Errorf("OTHER_PLATFORM_UPDATE CandidateTag = %q, want 1.2.4", other.CandidateTag)
+	}
+
+	if results[0].EffectivePolicy.Allows(event.OtherPlatformUpdate) {
+		t.Errorf("expected OtherPlatform to be disabled by default policy")
 	}
 }
 

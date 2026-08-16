@@ -33,9 +33,10 @@ type fakeRegistry struct {
 
 func newFakeRegistry() *fakeRegistry {
 	return &fakeRegistry{
-		tags:       make(map[string][]string),
-		manifests:  make(map[string]map[string]string),
-		resolveErr: make(map[string]error),
+		tags:         make(map[string][]string),
+		manifests:    make(map[string]map[string]string),
+		platformsFor: make(map[string]map[string][]image.Platform),
+		resolveErr:   make(map[string]error),
 	}
 }
 
@@ -48,6 +49,15 @@ func (f *fakeRegistry) setDigest(repository, tag, digest string) {
 		f.manifests[repository] = make(map[string]string)
 	}
 	f.manifests[repository][tag] = digest
+}
+
+// setPlatforms restricts which platforms a repository+tag's manifest is
+// available for.
+func (f *fakeRegistry) setPlatforms(repository, tag string, platforms []image.Platform) {
+	if f.platformsFor[repository] == nil {
+		f.platformsFor[repository] = make(map[string][]image.Platform)
+	}
+	f.platformsFor[repository][tag] = platforms
 }
 
 func (f *fakeRegistry) setResolveError(repository, tag string, err error) {
@@ -73,6 +83,20 @@ func (f *fakeRegistry) ResolveForPlatform(ctx context.Context, repository, refer
 	if !ok {
 		return registry.ManifestObservation{}, fmt.Errorf("fakeRegistry: no manifest for %s:%s", repository, reference)
 	}
+
+	if restricted, ok := f.platformsFor[repository][reference]; ok {
+		matched := false
+		for _, p := range restricted {
+			if p.Equal(platform) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return registry.ManifestObservation{AvailablePlatforms: restricted}, nil
+		}
+	}
+
 	return registry.ManifestObservation{PlatformManifestDigest: digest}, nil
 }
 

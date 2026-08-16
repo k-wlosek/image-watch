@@ -32,11 +32,12 @@ func buildObserver(cfg config.Config, m *metrics.Metrics) (*observer.Observer, e
 	}
 
 	registryClients := make(map[string]registry.Registry)
+	credentials := credentialProviderFor(cfg)
 	resolver := func(host string) registry.Registry {
 		if c, ok := registryClients[host]; ok {
 			return c
 		}
-		c := distribution.New(host, nil, credentialProviderFor(cfg))
+		c := distribution.New(host, nil, credentials)
 		if m != nil {
 			c.Instrumentation = registryInstrumentation{m}
 		}

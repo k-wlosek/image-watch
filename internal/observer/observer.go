@@ -212,10 +212,22 @@ func (o *Observer) detectVersionCandidateEvents(ctx context.Context, reg registr
 		if c == nil {
 			return
 		}
+
+		actualType := t
+		obs, err := reg.ResolveForPlatform(ctx, key.Repository, c.Tag, key.Platform)
+		if err != nil {
+			// Can't determine platform availability.
+			return
+		}
+		if obs.PlatformManifestDigest == "" {
+			// No manifest for the running platform.
+			actualType = event.OtherPlatformUpdate
+		}
+
 		ev := event.Event{
 			Timestamp:    o.now(),
 			Image:        ref,
-			Type:         t,
+			Type:         actualType,
 			CurrentTag:   key.Tag,
 			CandidateTag: c.Tag,
 			Platform:     key.Platform,
