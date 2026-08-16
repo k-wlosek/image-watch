@@ -5,15 +5,17 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/example/image-watch/internal/config"
 	"github.com/example/image-watch/internal/event"
-	"github.com/example/image-watch/internal/notify"
-	"github.com/example/image-watch/internal/notify/stdout"
+	"github.com/example/image-watch/internal/metrics"
 	"github.com/example/image-watch/internal/observer"
 )
 
@@ -41,19 +43,83 @@ func main() {
 }
 
 func runDaemon() {
-	cfg := config.Default()
-	fmt.Printf("image-watch starting (runtime=%s, interval=%s)\n", cfg.Runtime.Type, cfg.CheckInterval)
-	os.Exit(1)
+	cfg, err := config.Load("")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "image-watch daemon: config error:", err)
+		os.Exit(1)
+	}
+
+	var m *metrics.Metrics
+	if cfg.Metrics.Enabled {
+		m = metrics.New()
+	}
+
+	obs, err := buildObserver(cfg, m)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "image-watch daemon:", err)
+		os.Exit(1)
+	}
+	if closer, ok := obs.Store.(interface{ Close() error }); ok {
+		defer closer.Close()
+	}
+
+	notifiers := buildNotifiers(cfg)
+
+	daemon := &Daemon{
+		Config:          cfg,
+		Observer:        obs,
+		Notifiers:       notifiers,
+		Metrics:         m,
+		RegistryOutages: NewRegistryOutageTracker(),
+	}
+
+	var httpServer *http.Server
+	if cfg.Metrics.Enabled {
+		httpServer = newHTTPServer(cfg.Metrics.Listen, m)
+		go func() {
+			if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				fmt.Fprintln(os.Stderr, "image-watch daemon: http server error:", err)
+			}
+		}()
+		fmt.Printf("image-watch: operational endpoints listening on %s\n", cfg.Metrics.Listen)
+	}
+
+	fmt.Printf("image-watch: starting (runtime=%s, interval=%s)\n", cfg.Runtime.Type, cfg.CheckInterval)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	runErr := daemon.Run(ctx)
+	// context.Canceled is the expected outcome of a clean shutdown
+	// signal, not a failure worth a non-zero exit.
+	if runErr != nil && !errors.Is(runErr, context.Canceled) {
+		fmt.Fprintln(os.Stderr, "image-watch daemon: scheduler stopped unexpectedly:", runErr)
+	}
+
+	fmt.Println("image-watch: shutting down")
+	if httpServer != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := shutdownHTTPServer(shutdownCtx, httpServer); err != nil {
+			fmt.Fprintln(os.Stderr, "image-watch daemon: http server shutdown error:", err)
+		}
+	}
 }
 
-// runCheck performs one check-and-exit cycle
 func runCheck() {
-	cfg := config.Default()
+	cfg, err := config.Load("")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "image-watch check: config error:", err)
+		os.Exit(1)
+	}
 
-	obs, err := buildObserver(cfg)
+	obs, err := buildObserver(cfg, nil)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "image-watch check:", err)
 		os.Exit(1)
+	}
+	if closer, ok := obs.Store.(interface{ Close() error }); ok {
+		defer closer.Close()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -84,14 +150,9 @@ func runCheck() {
 	if len(note.Items) == 0 {
 		fmt.Println("nothing to notify (either no policy-allowed events, or already notified in a previous run)")
 	} else {
-		notifiers := []notify.Notifier{stdout.New()}
-		delivered, dErr := Deliver(ctx, notifiers, note)
-		if dErr != nil {
-			fmt.Fprintln(os.Stderr, "notification delivery had errors:", dErr)
-		}
-		if delivered {
-			MarkDelivered(ctx, note, obs.Store)
-		} else {
+		notifiers := buildNotifiers(cfg)
+		if err := DeliverAndMark(ctx, notifiers, note, cfg.Notifications.Mode, obs.Store); err != nil {
+			fmt.Fprintln(os.Stderr, "notification delivery had errors:", err)
 			exitCode = 1
 		}
 	}
@@ -141,7 +202,14 @@ func printEvent(e event.Event) {
 
 // runHealthcheck queries the daemon's own /healthz endpoint.
 func runHealthcheck() int {
-	resp, err := http.Get("http://127.0.0.1:9090/healthz")
+	cfg, err := config.Load("")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "healthcheck: config error:", err)
+		return 1
+	}
+	url := "http://" + healthcheckAddr(cfg.Metrics.Listen) + "/healthz"
+
+	resp, err := http.Get(url)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "healthcheck: request failed:", err)
 		return 1
@@ -152,4 +220,21 @@ func runHealthcheck() int {
 		return 1
 	}
 	return 0
+}
+
+// healthcheckAddr rewrites a bind address for local health checks.
+func healthcheckAddr(listen string) string {
+	if len(listen) > 0 && listen[0] == ':' {
+		return "127.0.0.1" + listen
+	}
+	for i := 0; i < len(listen); i++ {
+		if listen[i] == ':' {
+			host := listen[:i]
+			if host == "0.0.0.0" || host == "" {
+				return "127.0.0.1" + listen[i:]
+			}
+			return listen
+		}
+	}
+	return listen
 }
