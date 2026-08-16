@@ -8,7 +8,12 @@ import (
 	"github.com/example/image-watch/internal/version"
 )
 
-// Default enrichment budget.
+// EnrichmentObserver records enrichment telemetry.
+type EnrichmentObserver interface {
+	ObserveEnrichment(success bool)
+}
+
+// Default enrichment limits.
 const (
 	defaultEnrichmentMaxTags = 100
 	defaultEnrichmentTimeout = 5 * time.Second
@@ -30,6 +35,7 @@ func (o *Observer) attemptEnrichment(ctx context.Context, reg registry.Registry,
 
 	tags, err := reg.ListTags(enrichCtx, key.Repository)
 	if err != nil {
+		o.observeEnrichment(false)
 		return "", false
 	}
 
@@ -56,9 +62,17 @@ func (o *Observer) attemptEnrichment(ctx context.Context, reg registry.Registry,
 			continue
 		}
 		if obs.PlatformManifestDigest == newDigest {
+			o.observeEnrichment(true)
 			return raw, true
 		}
 	}
 
+	o.observeEnrichment(false)
 	return "", false
+}
+
+func (o *Observer) observeEnrichment(success bool) {
+	if o.Metrics != nil {
+		o.Metrics.ObserveEnrichment(success)
+	}
 }

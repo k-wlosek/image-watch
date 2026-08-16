@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/example/image-watch/internal/image"
 )
@@ -240,5 +242,93 @@ func TestParseNextLink(t *testing.T) {
 
 	if got := parseNextLink("", "https://registry.example.com"); got != "" {
 		t.Errorf("expected empty string for missing Link header, got %q", got)
+	}
+}
+
+type recordingInstrumentation struct {
+	mu    sync.Mutex
+	calls []instrumentationCall
+}
+
+type instrumentationCall struct {
+	Host     string
+	Duration time.Duration
+	Err      error
+}
+
+func (r *recordingInstrumentation) ObserveRequest(host string, duration time.Duration, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, instrumentationCall{Host: host, Duration: duration, Err: err})
+}
+
+func TestInstrumentation_RecordsSuccessfulRequest(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/foo/bar/tags/list", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(tagListResponse{Tags: []string{"1.0.0"}})
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	c := newTLSTestClient(t, srv, NoCredentials)
+	instr := &recordingInstrumentation{}
+	c.Instrumentation = instr
+
+	if _, err := c.ListTags(context.Background(), "foo/bar"); err != nil {
+		t.Fatalf("ListTags error: %v", err)
+	}
+
+	instr.mu.Lock()
+	defer instr.mu.Unlock()
+	if len(instr.calls) != 1 {
+		t.Fatalf("got %d instrumentation calls, want 1", len(instr.calls))
+	}
+	if instr.calls[0].Err != nil {
+		t.Errorf("expected no error recorded, got %v", instr.calls[0].Err)
+	}
+	if instr.calls[0].Host != c.Host {
+		t.Errorf("Host = %q, want %q", instr.calls[0].Host, c.Host)
+	}
+}
+
+func TestInstrumentation_RecordsFailedRequest(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/missing/repo/manifests/1.0.0", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	c := newTLSTestClient(t, srv, NoCredentials)
+	instr := &recordingInstrumentation{}
+	c.Instrumentation = instr
+
+	_, err := c.Resolve(context.Background(), "missing/repo", "1.0.0")
+	if err == nil {
+		t.Fatal("expected an error for a 404")
+	}
+
+	instr.mu.Lock()
+	defer instr.mu.Unlock()
+	if len(instr.calls) != 1 {
+		t.Fatalf("got %d instrumentation calls, want 1", len(instr.calls))
+	}
+	if instr.calls[0].Err == nil {
+		t.Errorf("expected the recorded call to carry the error")
+	}
+}
+
+func TestInstrumentation_NilInstrumentationIsSafe(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/foo/bar/tags/list", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(tagListResponse{Tags: []string{"1.0.0"}})
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	c := newTLSTestClient(t, srv, NoCredentials)
+	// c.Instrumentation is nil by default -- must not panic.
+	if _, err := c.ListTags(context.Background(), "foo/bar"); err != nil {
+		t.Fatalf("ListTags error: %v", err)
 	}
 }

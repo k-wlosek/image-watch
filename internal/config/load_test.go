@@ -1,0 +1,205 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func writeConfig(t *testing.T, content string) string {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+	return path
+}
+
+func TestLoad_NoFileUsesDefaults(t *testing.T) {
+	dir := t.TempDir()
+	nonexistent := filepath.Join(dir, "does-not-exist.yaml")
+	_ = nonexistent
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\") should not error when no config file exists anywhere expected: %v", err)
+	}
+	if cfg.CheckInterval != 6*time.Hour {
+		t.Errorf("expected default check interval, got %s", cfg.CheckInterval)
+	}
+}
+
+func TestLoad_ExplicitMissingFileErrors(t *testing.T) {
+	_, err := Load("/definitely/does/not/exist/config.yaml")
+	if err == nil {
+		t.Fatal("expected an error when an explicitly-named config file doesn't exist")
+	}
+}
+
+func TestLoad_YAMLOverridesDefaults(t *testing.T) {
+	path := writeConfig(t, `
+check_interval: 30m
+
+policy:
+  patch: true
+  minor: false
+  major: false
+  other_platform: true
+
+notifications:
+  mode: individual
+  targets:
+    - type: stdout
+    - type: ntfy
+      topic: docker-updates
+      priority: high
+
+state:
+  path: /custom/state.db
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if cfg.CheckInterval != 30*time.Minute {
+		t.Errorf("CheckInterval = %s, want 30m", cfg.CheckInterval)
+	}
+	if !cfg.Policy.Patch {
+		t.Errorf("expected Policy.Patch = true")
+	}
+	if cfg.Policy.Minor {
+		t.Errorf("expected Policy.Minor = false")
+	}
+	if !cfg.Policy.OtherPlatform {
+		t.Errorf("expected Policy.OtherPlatform = true")
+	}
+	// Fields not mentioned in the YAML should retain their built-in
+	// default, not silently become the zero value.
+	if !cfg.Policy.TagChanged {
+		t.Errorf("expected unmentioned Policy.TagChanged to keep its true default")
+	}
+
+	if cfg.Notifications.Mode != "individual" {
+		t.Errorf("Notifications.Mode = %q, want individual", cfg.Notifications.Mode)
+	}
+	if len(cfg.Notifications.Targets) != 2 {
+		t.Fatalf("got %d targets, want 2", len(cfg.Notifications.Targets))
+	}
+	if cfg.Notifications.Targets[1].Priority != "high" {
+		t.Errorf("expected ntfy target priority 'high', got %q", cfg.Notifications.Targets[1].Priority)
+	}
+
+	if cfg.State.Path != "/custom/state.db" {
+		t.Errorf("State.Path = %q, want /custom/state.db", cfg.State.Path)
+	}
+}
+
+func TestLoad_PolicyBooleanFalseIsRespected(t *testing.T) {
+	path := writeConfig(t, `
+policy:
+  tag_changed: false
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Policy.TagChanged {
+		t.Errorf("expected explicit tag_changed: false to be respected, got true")
+	}
+	// Everything else should remain default.
+	if !cfg.Policy.Patch {
+		t.Errorf("expected unrelated Policy.Patch to remain at its default (true)")
+	}
+}
+
+func TestLoad_RegistriesParsed(t *testing.T) {
+	path := writeConfig(t, `
+registries:
+  ghcr.io:
+    username_env: GHCR_USERNAME
+    password_env: GHCR_PASSWORD
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	auth, ok := cfg.Registries["ghcr.io"]
+	if !ok {
+		t.Fatalf("expected ghcr.io registry config to be present")
+	}
+	if auth.UsernameEnv != "GHCR_USERNAME" || auth.PasswordEnv != "GHCR_PASSWORD" {
+		t.Errorf("unexpected registry auth config: %+v", auth)
+	}
+}
+
+func TestLoad_InvalidDurationErrors(t *testing.T) {
+	path := writeConfig(t, `check_interval: not-a-duration`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected an error for an invalid check_interval")
+	}
+}
+
+func TestLoad_InvalidRuntimeTypeErrors(t *testing.T) {
+	path := writeConfig(t, `
+runtime:
+  type: podman
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected an error for an unsupported runtime type (v1 supports only docker)")
+	}
+}
+
+func TestLoad_InvalidNotificationModeErrors(t *testing.T) {
+	path := writeConfig(t, `
+notifications:
+  mode: sometimes
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected an error for an invalid notifications.mode")
+	}
+}
+
+func TestApplyEnvOverrides_Precedence(t *testing.T) {
+	path := writeConfig(t, `check_interval: 30m`)
+
+	t.Setenv("IMAGE_WATCH_CHECK_INTERVAL", "1h")
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	// Env var must win over YAML.
+	// default -> YAML -> environment.
+	if cfg.CheckInterval != time.Hour {
+		t.Errorf("CheckInterval = %s, want 1h (env override should win over YAML's 30m)", cfg.CheckInterval)
+	}
+}
+
+func TestApplyEnvOverrides_InvalidValueIgnored(t *testing.T) {
+	t.Setenv("IMAGE_WATCH_CHECK_INTERVAL", "not-a-duration")
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load should not fail on an invalid env override, got: %v", err)
+	}
+	if cfg.CheckInterval != 6*time.Hour {
+		t.Errorf("expected an invalid env override to be silently ignored, falling back to default, got %s", cfg.CheckInterval)
+	}
+}
+
+func TestLoad_ConfigPathEnvVar(t *testing.T) {
+	path := writeConfig(t, `check_interval: 45m`)
+	t.Setenv(envConfigPathVar, path)
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.CheckInterval != 45*time.Minute {
+		t.Errorf("expected IMAGE_WATCH_CONFIG_PATH to be honored, got %s", cfg.CheckInterval)
+	}
+}

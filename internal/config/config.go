@@ -37,9 +37,18 @@ type NotificationsConfig struct {
 
 // NotificationTarget is one delivery destination.
 type NotificationTarget struct {
-	Type  string // "stdout", "ntfy", "webhook"
-	Topic string // ntfy
-	URL   string // webhook
+	Type string // "stdout", "ntfy", "webhook"
+
+	// ntfy fields
+	ServerURL   string
+	Topic       string
+	UsernameEnv string
+	PasswordEnv string
+	Priority    string
+	Title       string
+
+	// webhook fields
+	URL string
 }
 
 // RegistryOutageConfig controls aggregated outage notifications.

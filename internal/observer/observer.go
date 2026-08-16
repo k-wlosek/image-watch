@@ -14,25 +14,28 @@ import (
 	"github.com/example/image-watch/internal/version"
 )
 
-// RegistryResolver returns a Registry client for a given host.
+// RegistryResolver returns a Registry client for a host.
 type RegistryResolver func(registryHost string) registry.Registry
 
-// Observer performs one full check cycle.
+// Observer performs one check cycle.
 type Observer struct {
 	Runtime       iwruntime.Runtime
 	Registries    RegistryResolver
 	Store         state.Store
 	DefaultPolicy policy.Policy
 
-	// EnrichmentMaxTags / EnrichmentTimeout bound enrichment.
+	// EnrichmentMaxTags and EnrichmentTimeout bound enrichment.
 	EnrichmentMaxTags int
 	EnrichmentTimeout time.Duration
 
-	// Now is overridable for tests; defaults to time.Now.
+	// Metrics is an optional enrichment telemetry hook.
+	Metrics EnrichmentObserver
+
+	// Now is overridable for tests.
 	Now func() time.Time
 }
 
-// Result is everything the observer determined for one monitored image.
+// Result is everything determined for one monitored image.
 type Result struct {
 	Image           image.Reference
 	Platform        image.Platform
@@ -43,7 +46,7 @@ type Result struct {
 	Err             error
 }
 
-// groupKey is the in-memory grouping key for one Check call.
+// groupKey is the grouping key for one Check call.
 type groupKey struct {
 	Registry   string
 	Repository string
@@ -55,7 +58,7 @@ func (g groupKey) stateKey() state.Key {
 	return state.Key{Registry: g.Registry, Repository: g.Repository, Tag: g.Tag, Platform: g.Platform}
 }
 
-// Check performs one full detection cycle.
+// Check performs one detection cycle.
 func (o *Observer) Check(ctx context.Context) ([]Result, error) {
 	containers, err := o.Runtime.ListContainers(ctx)
 	if err != nil {

@@ -51,7 +51,6 @@ func findEvent(events []event.Event, t event.Type) *event.Event {
 	return nil
 }
 
-// TestScenario1_StandardSemVer covers a standard SemVer image.
 func TestScenario1_StandardSemVer(t *testing.T) {
 	plat := image.Platform{OS: "linux", Architecture: "amd64"}
 	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
@@ -79,7 +78,6 @@ func TestScenario1_StandardSemVer(t *testing.T) {
 	}
 }
 
-// TestScenario3_MutableLatest covers a mutable tag digest change.
 func TestScenario3_MutableLatest(t *testing.T) {
 	plat := image.Platform{OS: "linux", Architecture: "amd64"}
 	reg := newFakeRegistry()
@@ -93,7 +91,6 @@ func TestScenario3_MutableLatest(t *testing.T) {
 	}}
 	o := newTestObserver(rt, reg)
 
-	// First check establishes baseline.
 	results, err := o.Check(context.Background())
 	if err != nil {
 		t.Fatalf("first Check error: %v", err)
@@ -102,7 +99,6 @@ func TestScenario3_MutableLatest(t *testing.T) {
 		t.Fatalf("did not expect TAG_CHANGED on baseline check, got %+v", e)
 	}
 
-	// Latest now points at a different digest.
 	reg.setDigest("acme/foo", "latest", "sha256:BBBB")
 	results, err = o.Check(context.Background())
 	if err != nil {
@@ -120,7 +116,6 @@ func TestScenario3_MutableLatest(t *testing.T) {
 	}
 }
 
-// TestScenario4_VersionTagMutation covers a version-tag digest change.
 func TestScenario4_VersionTagMutation(t *testing.T) {
 	plat := image.Platform{OS: "linux", Architecture: "amd64"}
 	reg := newFakeRegistry()
@@ -137,7 +132,6 @@ func TestScenario4_VersionTagMutation(t *testing.T) {
 		t.Fatalf("baseline check error: %v", err)
 	}
 
-	// 1.2.3 gets republished under a new digest.
 	reg.setDigest("acme/foo", "1.2.3", "sha256:BBBB")
 	results, err := o.Check(context.Background())
 	if err != nil {
@@ -158,7 +152,6 @@ func TestScenario4_VersionTagMutation(t *testing.T) {
 	}
 }
 
-// TestScenario7_Deduplication covers container deduplication.
 func TestScenario7_Deduplication(t *testing.T) {
 	plat := image.Platform{OS: "linux", Architecture: "amd64"}
 	var containers []iwruntime.ContainerObservation
@@ -186,7 +179,6 @@ func TestScenario7_Deduplication(t *testing.T) {
 	}
 }
 
-// TestScenario9_ContainerRecreation covers container recreation.
 func TestScenario9_ContainerRecreation(t *testing.T) {
 	plat := image.Platform{OS: "linux", Architecture: "amd64"}
 	reg := newFakeRegistry()
@@ -201,7 +193,6 @@ func TestScenario9_ContainerRecreation(t *testing.T) {
 		t.Fatalf("baseline check error: %v", err)
 	}
 
-	// Different container ID, same image.
 	rt.containers = []iwruntime.ContainerObservation{
 		container("recreated", "ghcr.io/acme/foo:1.2.3", "sha256:current", plat),
 	}
@@ -214,7 +205,6 @@ func TestScenario9_ContainerRecreation(t *testing.T) {
 	}
 }
 
-// TestScenario10_RegistryFailureIsolation covers registry failure isolation.
 func TestScenario10_RegistryFailureIsolation(t *testing.T) {
 	plat := image.Platform{OS: "linux", Architecture: "amd64"}
 	reg := newFakeRegistry()
@@ -250,5 +240,79 @@ func TestScenario10_RegistryFailureIsolation(t *testing.T) {
 	}
 	if !sawBadFailure {
 		t.Errorf("expected acme/bad to report a stale, non-nil error result")
+	}
+}
+
+type fakeEnrichmentObserver struct {
+	calls []bool // each entry is the success value passed to ObserveEnrichment
+}
+
+func (f *fakeEnrichmentObserver) ObserveEnrichment(success bool) {
+	f.calls = append(f.calls, success)
+}
+
+func TestEnrichmentObserver_RecordsSuccessAndFailure(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	reg := newFakeRegistry()
+	reg.setTags("acme/foo", []string{"1.2.3", "1.2.4"})
+	reg.setDigest("acme/foo", "1.2.3", "sha256:AAAA")
+	reg.setDigest("acme/foo", "1.2.4", "sha256:BBBB")
+	reg.setDigest("acme/foo", "latest", "sha256:AAAA")
+
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("foo1", "ghcr.io/acme/foo:latest", "sha256:AAAA", plat),
+	}}
+	o := newTestObserver(rt, reg)
+	obs := &fakeEnrichmentObserver{}
+	o.Metrics = obs
+
+	// Baseline check: no digest change yet, so enrichment shouldn't run
+	// at all.
+	if _, err := o.Check(context.Background()); err != nil {
+		t.Fatalf("baseline check error: %v", err)
+	}
+	if len(obs.calls) != 0 {
+		t.Fatalf("expected no enrichment calls before any digest change, got %d", len(obs.calls))
+	}
+
+	// latest moves to a digest matching 1.2.4 -> enrichment should
+	// succeed and be recorded.
+	reg.setDigest("acme/foo", "latest", "sha256:BBBB")
+	if _, err := o.Check(context.Background()); err != nil {
+		t.Fatalf("second check error: %v", err)
+	}
+	if len(obs.calls) != 1 || !obs.calls[0] {
+		t.Errorf("expected exactly one successful enrichment call, got %v", obs.calls)
+	}
+
+	// latest moves again, this time to a digest with no matching tag ->
+	// enrichment should be attempted but recorded as unsuccessful.
+	reg.setDigest("acme/foo", "latest", "sha256:CCCC")
+	if _, err := o.Check(context.Background()); err != nil {
+		t.Fatalf("third check error: %v", err)
+	}
+	if len(obs.calls) != 2 || obs.calls[1] {
+		t.Errorf("expected a second, unsuccessful enrichment call, got %v", obs.calls)
+	}
+}
+
+func TestEnrichmentObserver_NilIsSafe(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	reg := newFakeRegistry()
+	reg.setTags("acme/foo", nil)
+	reg.setDigest("acme/foo", "latest", "sha256:AAAA")
+
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("foo1", "ghcr.io/acme/foo:latest", "sha256:AAAA", plat),
+	}}
+	o := newTestObserver(rt, reg)
+	// o.Metrics is nil by default -- must not panic even when enrichment
+	// actually runs.
+	if _, err := o.Check(context.Background()); err != nil {
+		t.Fatalf("baseline check error: %v", err)
+	}
+	reg.setDigest("acme/foo", "latest", "sha256:BBBB")
+	if _, err := o.Check(context.Background()); err != nil {
+		t.Fatalf("second check error: %v", err)
 	}
 }

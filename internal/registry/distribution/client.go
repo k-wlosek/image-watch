@@ -19,14 +19,22 @@ import (
 // maxTagListPages bounds pagination for tag listing.
 const maxTagListPages = 50
 
+// Instrumentation records per-request registry telemetry.
+type Instrumentation interface {
+	ObserveRequest(registryHost string, duration time.Duration, err error)
+}
+
 // Client is a Registry implementation backed by HTTP calls.
 type Client struct {
 	Host       string
 	httpClient *http.Client
 	auth       *authenticator
+
+	// Instrumentation is optional.
+	Instrumentation Instrumentation
 }
 
-// New constructs a distribution client bound to a single registry host.
+// New constructs a distribution client bound to a registry host.
 func New(host string, httpClient *http.Client, credentials CredentialProvider) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 15 * time.Second}
@@ -90,12 +98,7 @@ func (h *Client) Resolve(ctx context.Context, repository string, reference strin
 
 	digest := headers.Get("Docker-Content-Digest")
 	if digest == "" {
-		// Some registries omit the header; the caller can fall back to
-		// content-addressing this themselves if truly needed. For v1 we
-		// treat a missing digest header as a registry error rather than
-		// computing our own digest, since that requires exact canonical
-		// JSON byte-matching the registry's own hashing and is easy to
-		// get subtly wrong.
+		// Some registries omit the header.
 		return registry.ManifestObservation{}, newError(ErrClassRegistry, repository, "registry did not return Docker-Content-Digest header", 0, nil)
 	}
 
@@ -119,8 +122,7 @@ func (h *Client) Resolve(ctx context.Context, repository string, reference strin
 		}, nil
 	}
 
-	// Single-platform manifest: the platform-manifest digest IS the
-	// content digest we just resolved. There is no index in this case.
+	// Single-platform manifest: the manifest digest is the content digest.
 	return registry.ManifestObservation{
 		PlatformManifestDigest: digest,
 		MediaType:              mediaType,
@@ -140,8 +142,7 @@ func (h *Client) ResolveForPlatform(ctx context.Context, repository, reference s
 		return top, nil
 	}
 
-	// It was an index; find the matching entry and resolve its digest
-	// directly to get that platform's manifest digest.
+	// It was an index; find the matching entry.
 	u := fmt.Sprintf("%s/v2/%s/manifests/%s", h.baseURL(), repository, url.PathEscape(reference))
 	body, _, err := h.doAuthenticatedGET(ctx, repository, "pull", u)
 	if err != nil {
@@ -169,6 +170,15 @@ func (h *Client) ResolveForPlatform(ctx context.Context, repository, reference s
 
 // doAuthenticatedGET performs a GET with bearer-token handling.
 func (h *Client) doAuthenticatedGET(ctx context.Context, repository, action, rawURL string) ([]byte, http.Header, error) {
+	start := time.Now()
+	body, headers, err := h.doAuthenticatedGETInner(ctx, repository, action, rawURL)
+	if h.Instrumentation != nil {
+		h.Instrumentation.ObserveRequest(h.Host, time.Since(start), err)
+	}
+	return body, headers, err
+}
+
+func (h *Client) doAuthenticatedGETInner(ctx context.Context, repository, action, rawURL string) ([]byte, http.Header, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, nil, newError(ErrClassInvalidReference, repository, "invalid request URL", 0, err)
@@ -211,7 +221,7 @@ func (h *Client) doAuthenticatedGET(ctx context.Context, repository, action, raw
 		defer resp2.Body.Close()
 
 		if resp2.StatusCode == http.StatusUnauthorized {
-			// Cached token was rejected; drop it.
+			// Cached token was rejected.
 			h.auth.invalidate(c)
 			return nil, nil, newError(ErrClassAuthentication, repository, "authentication rejected after token exchange", http.StatusUnauthorized, nil)
 		}
