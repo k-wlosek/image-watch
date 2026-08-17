@@ -1,0 +1,26 @@
+# VCS
+.git/
+.gitignore
+
+# OS/Editor
+.DS_Store
+.vscode
+.idea
+
+# Dev tooling
+Dockerfile
+Makefile
+scripts/
+deploy/
+
+**/*_test.go
+
+# Build artifacts
+bin/
+*.test
+*.out
+go.work
+
+# Secrets
+.env
+.env.*
