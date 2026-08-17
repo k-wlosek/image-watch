@@ -99,6 +99,36 @@ func TestResolve_SinglePlatformManifest(t *testing.T) {
 	}
 }
 
+func TestPlatformMatch_VariantDefaulting(t *testing.T) {
+	// An index entry published as linux/arm64/v8 must satisfy a request for
+	// plain linux/arm64, and vice versa (OCI variant defaulting).
+	entryV8 := ociPlatform{OS: "linux", Architecture: "arm64", Variant: "v8"}
+	entryNoVariant := ociPlatform{OS: "linux", Architecture: "arm64"}
+	entryArmV7 := ociPlatform{OS: "linux", Architecture: "arm", Variant: "v7"}
+
+	cases := []struct {
+		entry ociPlatform
+		want  image.Platform
+		match bool
+	}{
+		{entryV8, image.Platform{OS: "linux", Architecture: "arm64"}, true},
+		{entryV8, image.Platform{OS: "linux", Architecture: "arm64", Variant: "v8"}, true},
+		{entryNoVariant, image.Platform{OS: "linux", Architecture: "arm64"}, true},
+		{entryNoVariant, image.Platform{OS: "linux", Architecture: "arm64", Variant: "v8"}, true},
+		{entryV8, image.Platform{OS: "linux", Architecture: "arm64", Variant: "v7"}, false},
+		// arm has no default variant: empty must not match an explicit v7.
+		{entryArmV7, image.Platform{OS: "linux", Architecture: "arm"}, false},
+		{entryArmV7, image.Platform{OS: "linux", Architecture: "arm", Variant: "v7"}, true},
+		{entryNoVariant, image.Platform{OS: "darwin", Architecture: "arm64"}, false},
+	}
+
+	for _, tc := range cases {
+		if got := platformMatches(tc.entry, tc.want); got != tc.match {
+			t.Errorf("platformMatches(%+v, %+v) = %v, want %v", tc.entry, tc.want, got, tc.match)
+		}
+	}
+}
+
 func TestResolveForPlatform_MultiPlatformIndex(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v2/foo/bar/manifests/latest", func(w http.ResponseWriter, r *http.Request) {

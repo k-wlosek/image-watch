@@ -154,9 +154,7 @@ func (h *Client) ResolveForPlatform(ctx context.Context, repository, reference s
 	}
 
 	for _, m := range idx.Manifests {
-		if m.Platform.OS == platform.OS &&
-			m.Platform.Architecture == platform.Architecture &&
-			m.Platform.Variant == platform.Variant {
+		if platformMatches(m.Platform, platform) {
 			top.PlatformManifestDigest = m.Digest
 			p := platform
 			top.Platform = &p
@@ -166,6 +164,32 @@ func (h *Client) ResolveForPlatform(ctx context.Context, repository, reference s
 
 	// No entry for the requested platform.
 	return top, nil
+}
+
+// platformMatches reports whether an index entry's platform satisfies a
+// requested platform, applying OCI variant defaulting.
+func platformMatches(entry ociPlatform, want image.Platform) bool {
+	if entry.OS != want.OS || entry.Architecture != want.Architecture {
+		return false
+	}
+	return variantCompatible(entry.Architecture, want.Variant, entry.Variant)
+}
+
+// variantCompatible treats an empty variant and the architecture's default
+// variant as the same machine.
+func variantCompatible(arch, requested, entry string) bool {
+	if requested == entry {
+		return true
+	}
+	if arch == "arm64" {
+		switch {
+		case requested == "" && entry == "v8":
+			return true
+		case requested == "v8" && entry == "":
+			return true
+		}
+	}
+	return false
 }
 
 // doAuthenticatedGET performs a GET with bearer-token handling.
