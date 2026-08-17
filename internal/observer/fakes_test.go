@@ -29,6 +29,12 @@ type fakeRegistry struct {
 	platformsFor map[string]map[string][]image.Platform
 	listErr      error
 	resolveErr   map[string]error // repository+"/"+tag -> error
+
+	// resolveCalls counts ResolveForPlatform invocations per
+	// "repository/tag", so tests can assert on call counts (e.g. to
+	// verify the observer's per-cycle candidate-resolve memoization
+	// actually avoids redundant calls).
+	resolveCalls map[string]int
 }
 
 func newFakeRegistry() *fakeRegistry {
@@ -37,6 +43,7 @@ func newFakeRegistry() *fakeRegistry {
 		manifests:    make(map[string]map[string]string),
 		platformsFor: make(map[string]map[string][]image.Platform),
 		resolveErr:   make(map[string]error),
+		resolveCalls: make(map[string]int),
 	}
 }
 
@@ -76,6 +83,8 @@ func (f *fakeRegistry) Resolve(ctx context.Context, repository, reference string
 }
 
 func (f *fakeRegistry) ResolveForPlatform(ctx context.Context, repository, reference string, platform image.Platform) (registry.ManifestObservation, error) {
+	f.resolveCalls[repository+"/"+reference]++
+
 	if err, ok := f.resolveErr[repository+"/"+reference]; ok {
 		return registry.ManifestObservation{}, err
 	}

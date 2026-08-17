@@ -79,100 +79,128 @@ func (h *Client) ListTags(ctx context.Context, repository string) ([]string, err
 	return allTags, nil
 }
 
-func (h *Client) Resolve(ctx context.Context, repository string, reference string) (registry.ManifestObservation, error) {
+// resolveRaw performs the single underlying manifest/index HTTP fetch
+// and returns everything callers need without a second round trip
+// eliminates.
+func (h *Client) resolveRaw(ctx context.Context, repository, reference string) (body []byte, digest, mediaType string, err error) {
 	u := fmt.Sprintf("%s/v2/%s/manifests/%s", h.baseURL(), repository, url.PathEscape(reference))
 
 	body, headers, err := h.doAuthenticatedGET(ctx, repository, "pull", u)
 	if err != nil {
-		return registry.ManifestObservation{}, err
+		return nil, "", "", err
 	}
 
 	var env manifestEnvelope
 	if err := json.Unmarshal(body, &env); err != nil {
-		return registry.ManifestObservation{}, newError(ErrClassRegistry, repository, "malformed manifest response", 0, err)
+		return nil, "", "", newError(ErrClassRegistry, repository, "malformed manifest response", 0, err)
 	}
-	mediaType := env.MediaType
+	mediaType = env.MediaType
 	if mediaType == "" {
 		mediaType = headers.Get("Content-Type")
 	}
 
-	digest := headers.Get("Docker-Content-Digest")
+	digest = headers.Get("Docker-Content-Digest")
 	if digest == "" {
 		// Some registries omit the header.
-		return registry.ManifestObservation{}, newError(ErrClassRegistry, repository, "registry did not return Docker-Content-Digest header", 0, nil)
+		return nil, "", "", newError(ErrClassRegistry, repository, "registry did not return Docker-Content-Digest header", 0, nil)
+	}
+
+	return body, digest, mediaType, nil
+}
+
+// parseIndex decodes an OCI image index / Docker manifest list body,
+// returning both the parsed index and the ManifestObservation shape
+func parseIndex(body []byte, digest, mediaType, repository string) (imageIndex, registry.ManifestObservation, error) {
+	var idx imageIndex
+	if err := json.Unmarshal(body, &idx); err != nil {
+		return imageIndex{}, registry.ManifestObservation{}, newError(ErrClassRegistry, repository, "malformed image index", 0, err)
+	}
+	var platforms []image.Platform
+	for _, m := range idx.Manifests {
+		platforms = append(platforms, image.Platform{
+			OS:           m.Platform.OS,
+			Architecture: m.Platform.Architecture,
+			Variant:      m.Platform.Variant,
+		})
+	}
+	return idx, registry.ManifestObservation{
+		IndexDigest:        digest,
+		MediaType:          mediaType,
+		AvailablePlatforms: platforms,
+	}, nil
+}
+
+func (h *Client) Resolve(ctx context.Context, repository string, reference string) (registry.ManifestObservation, error) {
+	body, digest, mediaType, err := h.resolveRaw(ctx, repository, reference)
+	if err != nil {
+		return registry.ManifestObservation{}, err
 	}
 
 	if isIndexMediaType(mediaType) {
-		var idx imageIndex
-		if err := json.Unmarshal(body, &idx); err != nil {
-			return registry.ManifestObservation{}, newError(ErrClassRegistry, repository, "malformed image index", 0, err)
-		}
-		var platforms []image.Platform
-		for _, m := range idx.Manifests {
-			platforms = append(platforms, image.Platform{
-				OS:           m.Platform.OS,
-				Architecture: m.Platform.Architecture,
-				Variant:      m.Platform.Variant,
-			})
-		}
-		return registry.ManifestObservation{
-			IndexDigest:        digest,
-			MediaType:          mediaType,
-			AvailablePlatforms: platforms,
-		}, nil
+		_, obs, err := parseIndex(body, digest, mediaType, repository)
+		return obs, err
 	}
 
-	// Single-platform manifest: the manifest digest is the content digest.
+	// Single-platform manifest
 	return registry.ManifestObservation{
 		PlatformManifestDigest: digest,
 		MediaType:              mediaType,
 	}, nil
 }
 
-// ResolveForPlatform resolves a reference for a specific platform.
+// ResolveForPlatform resolves a reference to an actionable,
+// platform-verified digest
 func (h *Client) ResolveForPlatform(ctx context.Context, repository, reference string, platform image.Platform) (registry.ManifestObservation, error) {
-	top, err := h.Resolve(ctx, repository, reference)
+	body, digest, mediaType, err := h.resolveRaw(ctx, repository, reference)
 	if err != nil {
 		return registry.ManifestObservation{}, err
 	}
-	if top.PlatformManifestDigest != "" {
-		// Already single-platform.
-		p := platform
-		top.Platform = &p
-		return top, nil
-	}
 
-	// It was an index; find the matching entry.
-	u := fmt.Sprintf("%s/v2/%s/manifests/%s", h.baseURL(), repository, url.PathEscape(reference))
-	body, _, err := h.doAuthenticatedGET(ctx, repository, "pull", u)
-	if err != nil {
-		return registry.ManifestObservation{}, err
-	}
-	var idx imageIndex
-	if err := json.Unmarshal(body, &idx); err != nil {
-		return registry.ManifestObservation{}, newError(ErrClassRegistry, repository, "malformed image index", 0, err)
-	}
-
-	for _, m := range idx.Manifests {
-		if platformMatches(m.Platform, platform) {
-			top.PlatformManifestDigest = m.Digest
-			p := platform
-			top.Platform = &p
-			return top, nil
+	if isIndexMediaType(mediaType) {
+		idx, obs, err := parseIndex(body, digest, mediaType, repository)
+		if err != nil {
+			return registry.ManifestObservation{}, err
 		}
+		for _, m := range idx.Manifests {
+			entryPlatform := image.Platform{OS: m.Platform.OS, Architecture: m.Platform.Architecture, Variant: m.Platform.Variant}
+			if platformMatches(entryPlatform, platform) {
+				obs.PlatformManifestDigest = m.Digest
+				p := platform
+				obs.Platform = &p
+				return obs, nil
+			}
+		}
+		// No entry for the running platform
+		return obs, nil
 	}
 
-	// No entry for the requested platform.
-	return top, nil
+	// Single-platform manifest
+	actual, err := h.fetchConfigPlatform(ctx, repository, body)
+	if err != nil {
+		// Can't determine the manifest's actual platform
+		return registry.ManifestObservation{}, err
+	}
+
+	if !platformMatches(actual, platform) {
+		return registry.ManifestObservation{AvailablePlatforms: []image.Platform{actual}}, nil
+	}
+
+	p := actual
+	return registry.ManifestObservation{
+		PlatformManifestDigest: digest,
+		MediaType:              mediaType,
+		Platform:               &p,
+	}, nil
 }
 
-// platformMatches reports whether an index entry's platform satisfies a
-// requested platform, applying OCI variant defaulting.
-func platformMatches(entry ociPlatform, want image.Platform) bool {
-	if entry.OS != want.OS || entry.Architecture != want.Architecture {
+// platformMatches reports whether a candidate platform (from a registry
+// manifest/index entry, or a single manifest's resolved config blob)
+// satisfies a requested platform
+func platformMatches(candidate, want image.Platform) bool {
+	if candidate.OS != want.OS || candidate.Architecture != want.Architecture {
 		return false
 	}
-	return variantCompatible(entry.Architecture, want.Variant, entry.Variant)
+	return variantCompatible(candidate.Architecture, want.Variant, candidate.Variant)
 }
 
 // variantCompatible treats an empty variant and the architecture's default
@@ -190,6 +218,28 @@ func variantCompatible(arch, requested, entry string) bool {
 		}
 	}
 	return false
+}
+
+// fetchConfigPlatform reads the platform (OS/architecture/variant) a
+// single-platform manifest actually targets, by fetching the config
+// blob its "config" descriptor points at.
+func (h *Client) fetchConfigPlatform(ctx context.Context, repository string, manifestBody []byte) (image.Platform, error) {
+	var ref manifestConfigRef
+	if err := json.Unmarshal(manifestBody, &ref); err != nil || ref.Config.Digest == "" {
+		return image.Platform{}, newError(ErrClassRegistry, repository, "manifest has no usable config descriptor", 0, err)
+	}
+
+	u := fmt.Sprintf("%s/v2/%s/blobs/%s", h.baseURL(), repository, url.PathEscape(ref.Config.Digest))
+	body, _, err := h.doAuthenticatedGET(ctx, repository, "pull", u)
+	if err != nil {
+		return image.Platform{}, err
+	}
+
+	var cfg imageConfig
+	if err := json.Unmarshal(body, &cfg); err != nil {
+		return image.Platform{}, newError(ErrClassRegistry, repository, "malformed image config blob", 0, err)
+	}
+	return image.Platform{OS: cfg.OS, Architecture: cfg.Architecture, Variant: cfg.Variant}, nil
 }
 
 // doAuthenticatedGET performs a GET with bearer-token handling.

@@ -49,6 +49,23 @@ type tagListResponse struct {
 	Tags []string `json:"tags"`
 }
 
+// manifestConfigRef captures just the "config" descriptor present on a
+// single-platform manifest.
+type manifestConfigRef struct {
+	Config struct {
+		MediaType string `json:"mediaType"`
+		Digest    string `json:"digest"`
+	} `json:"config"`
+}
+
+// imageConfig is the minimal subset of the OCI/Docker image config JSON
+// needed to determine which platform a single-platform manifest targets.
+type imageConfig struct {
+	Architecture string `json:"architecture"`
+	OS           string `json:"os"`
+	Variant      string `json:"variant,omitempty"`
+}
+
 func isIndexMediaType(mt string) bool {
 	return mt == MediaTypeOCIIndex || mt == MediaTypeDockerManifestList
 }

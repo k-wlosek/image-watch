@@ -44,6 +44,13 @@ type Result struct {
 	ContainerNames  []string
 	Stale           bool
 	Err             error
+
+	// Partial is true when the current tag's own registry check
+	// succeeded (Err == nil) but one or more auxiliary lookups this
+	// cycle failed - specifically, listing tags for candidate analysis,
+	// the previous-observation state read, or per-candidate platform
+	// verification.
+	Partial bool
 }
 
 // groupKey is the grouping key for one Check call.
@@ -114,7 +121,10 @@ func (o *Observer) checkGroup(ctx context.Context, key groupKey, members []iwrun
 		return result
 	}
 
-	previous, found, _ := o.Store.GetObservation(ctx, key.stateKey())
+	previous, found, storeErr := o.Store.GetObservation(ctx, key.stateKey())
+	if storeErr != nil {
+		result.Partial = true
+	}
 
 	registryObs, err := reg.ResolveForPlatform(ctx, key.Repository, key.Tag, key.Platform)
 	if err != nil {
@@ -132,13 +142,20 @@ func (o *Observer) checkGroup(ctx context.Context, key groupKey, members []iwrun
 		LastSuccess:            o.now(),
 		Status:                 state.StatusFresh,
 	}
-	// Ignore storage errors here so events still return.
-	_ = o.Store.PutObservation(ctx, newObs)
+	// Not returning early on PutObservation errors: a storage failure
+	// shouldn't discard already-detected events for this cycle
+	if err := o.Store.PutObservation(ctx, newObs); err != nil {
+		result.Partial = true
+	}
 
 	tv := version.ParseTag(key.Tag)
 
 	result.Events = append(result.Events, o.detectDigestEvents(ctx, reg, key, tv, previous, found, registryObs)...)
-	result.Events = append(result.Events, o.detectVersionCandidateEvents(ctx, reg, key)...)
+	candidateEvents, candidatesPartial := o.detectVersionCandidateEvents(ctx, reg, key)
+	result.Events = append(result.Events, candidateEvents...)
+	if candidatesPartial {
+		result.Partial = true
+	}
 
 	return result
 }
@@ -189,34 +206,56 @@ func (o *Observer) detectDigestEvents(ctx context.Context, reg registry.Registry
 }
 
 // detectVersionCandidateEvents computes version-based candidates.
-func (o *Observer) detectVersionCandidateEvents(ctx context.Context, reg registry.Registry, key groupKey) []event.Event {
+func (o *Observer) detectVersionCandidateEvents(ctx context.Context, reg registry.Registry, key groupKey) ([]event.Event, bool) {
 	tv := version.ParseTag(key.Tag)
 	if tv.IsOpaque() {
-		return nil
+		return nil, false
 	}
 	if _, ok := tv.Application(); !ok {
-		return nil
+		return nil, false
 	}
 
 	tags, err := reg.ListTags(ctx, key.Repository)
 	if err != nil {
-		// Skip version candidates when tags cannot be listed.
-		return nil
+		// Candidate analysis simply produces no events if we can't list
+		// tags - not a fatal error, but the result should say so
+		return nil, true
 	}
 
 	cs := version.AnalyzeCandidates(key.Tag, tags)
 	ref := image.Reference{Registry: key.Registry, Repository: key.Repository, Tag: &key.Tag}
 
+	// resolveCache memoizes ResolveForPlatform calls by candidate tag
+	// within this single invocation.
+	type resolveResult struct {
+		obs registry.ManifestObservation
+		err error
+	}
+	resolveCache := make(map[string]resolveResult)
+	resolveCandidate := func(tag string) (registry.ManifestObservation, error) {
+		if r, ok := resolveCache[tag]; ok {
+			return r.obs, r.err
+		}
+		obs, err := reg.ResolveForPlatform(ctx, key.Repository, tag, key.Platform)
+		resolveCache[tag] = resolveResult{obs, err}
+		return obs, err
+	}
+
 	var events []event.Event
+	partial := false
+
+	// add resolves each winning candidate's manifest for the running
+	// platform before emitting anything
 	add := func(t event.Type, c *version.Candidate) {
 		if c == nil {
 			return
 		}
 
 		actualType := t
-		obs, err := reg.ResolveForPlatform(ctx, key.Repository, c.Tag, key.Platform)
+		obs, err := resolveCandidate(c.Tag)
 		if err != nil {
 			// Can't determine platform availability.
+			partial = true
 			return
 		}
 		if obs.PlatformManifestDigest == "" {
@@ -247,7 +286,7 @@ func (o *Observer) detectVersionCandidateEvents(ctx context.Context, reg registr
 	add(event.ApplicationMajorAvailable, cs.ApplicationMajor)
 	add(event.BaseAdvancementAvailable, cs.BaseAdvancement)
 
-	return events
+	return events, partial
 }
 
 func effectivePolicyFor(base policy.Policy, members []iwruntime.ContainerObservation) policy.Policy {

@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	iwruntime "github.com/example/image-watch/internal/runtime"
 )
 
 func newTestClient(t *testing.T, mux *http.ServeMux) *Client {
@@ -116,9 +118,43 @@ func TestListContainers_ImageInspectFailureDoesNotAbortWholeCheck(t *testing.T) 
 		})
 	})
 	mux.HandleFunc("/images/sha256:good/json", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(imageInspect{ID: "sha256:good", RepoDigests: []string{"nginx@sha256:aaa"}})
+		json.NewEncoder(w).Encode(imageInspect{
+			ID: "sha256:good", RepoDigests: []string{"nginx@sha256:aaa"},
+			Os: "linux", Architecture: "amd64",
+		})
 	})
 	mux.HandleFunc("/images/sha256:bad/json", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	c := newTestClient(t, mux)
+	obs, err := c.ListContainers(context.Background())
+	if err != nil {
+		t.Fatalf("ListContainers should not fail wholesale on one image's inspect error: %v", err)
+	}
+	if len(obs) != 1 {
+		t.Fatalf("got %d observations, want 1 (only the successfully-inspected container; the failed one has no sibling to recover a platform from)", len(obs))
+	}
+	if obs[0].Name != "good" || obs[0].Digest != "sha256:aaa" {
+		t.Errorf("expected the successfully-inspected container to be reported with its digest, got %+v", obs[0])
+	}
+}
+
+func TestListContainers_InspectFailureRecoversPlatformFromSibling(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/containers/json", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]containerSummary{
+			{ID: "c1", Names: []string{"/web1"}, Image: "nginx:1.25", ImageID: "sha256:good", Created: 1},
+			{ID: "c2", Names: []string{"/web2"}, Image: "nginx:1.25", ImageID: "sha256:flaky", Created: 2},
+		})
+	})
+	mux.HandleFunc("/images/sha256:good/json", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(imageInspect{
+			ID: "sha256:good", RepoDigests: []string{"nginx@sha256:aaa"},
+			Os: "linux", Architecture: "amd64",
+		})
+	})
+	mux.HandleFunc("/images/sha256:flaky/json", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	})
 
@@ -131,20 +167,20 @@ func TestListContainers_ImageInspectFailureDoesNotAbortWholeCheck(t *testing.T) 
 		t.Fatalf("got %d observations, want 2", len(obs))
 	}
 
-	var sawGoodDigest, sawBadWithoutDigest bool
-	for _, o := range obs {
-		if o.Name == "good" && o.Digest == "sha256:aaa" {
-			sawGoodDigest = true
-		}
-		if o.Name == "bad" && o.Digest == "" {
-			sawBadWithoutDigest = true
+	var web2 *iwruntime.ContainerObservation
+	for i := range obs {
+		if obs[i].Name == "web2" {
+			web2 = &obs[i]
 		}
 	}
-	if !sawGoodDigest {
-		t.Errorf("expected the successfully-inspected container to carry its digest")
+	if web2 == nil {
+		t.Fatalf("expected to find the web2 container in results")
 	}
-	if !sawBadWithoutDigest {
-		t.Errorf("expected the failed-inspect container to still be reported, just without a digest")
+	if web2.Platform.OS != "linux" || web2.Platform.Architecture != "amd64" {
+		t.Errorf("expected web2's platform to be recovered from its sibling (linux/amd64), got %+v", web2.Platform)
+	}
+	if web2.Digest != "" {
+		t.Errorf("expected web2's digest to remain empty, got %q", web2.Digest)
 	}
 }
 
@@ -158,7 +194,9 @@ func TestMatchRepoDigest(t *testing.T) {
 		{"exact match", []string{"library/nginx@sha256:aaa"}, "library/nginx", "sha256:aaa"},
 		{"docker hub short form", []string{"nginx@sha256:aaa"}, "library/nginx", "sha256:aaa"},
 		{"qualified ghcr", []string{"ghcr.io/acme/foo@sha256:bbb"}, "acme/foo", "sha256:bbb"},
-		{"single unambiguous entry", []string{"weird@sha256:ccc"}, "library/totallydifferent", "sha256:ccc"},
+		{"single unmatched entry is not trusted", []string{"weird@sha256:ccc"}, "library/totallydifferent", ""},
+		{"substring without boundary is rejected", []string{"mynginx@sha256:ddd"}, "nginx", ""},
+		{"substring without boundary, reverse direction", []string{"nginx@sha256:eee"}, "mynginx", ""},
 		{"no digests", nil, "library/nginx", ""},
 	}
 	for _, c := range cases {

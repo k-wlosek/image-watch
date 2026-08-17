@@ -31,7 +31,15 @@ func Load(path string) (Config, error) {
 	data, err := os.ReadFile(resolvedPath)
 	if err != nil {
 		if os.IsNotExist(err) && !explicit {
-			return applyEnvOverrides(cfg), nil
+			// No file at the conventional default location, use defaults.
+			cfg, err = applyEnvOverrides(cfg)
+			if err != nil {
+				return Config{}, fmt.Errorf("config: %w", err)
+			}
+			if err := validate(cfg); err != nil {
+				return Config{}, fmt.Errorf("config: %w", err)
+			}
+			return cfg, nil
 		}
 		if os.IsNotExist(err) {
 			return Config{}, fmt.Errorf("config: no such file %s", resolvedPath)
@@ -49,7 +57,10 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("config: invalid value in %s: %w", resolvedPath, err)
 	}
 
-	cfg = applyEnvOverrides(cfg)
+	cfg, err = applyEnvOverrides(cfg)
+	if err != nil {
+		return Config{}, fmt.Errorf("config: %w", err)
+	}
 
 	if err := validate(cfg); err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
@@ -206,11 +217,13 @@ func setBool(dst *bool, src *bool) {
 }
 
 // applyEnvOverrides applies environment variable overrides.
-func applyEnvOverrides(cfg Config) Config {
+func applyEnvOverrides(cfg Config) (Config, error) {
 	if v := os.Getenv("IMAGE_WATCH_CHECK_INTERVAL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
-			cfg.CheckInterval = d
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("IMAGE_WATCH_CHECK_INTERVAL: invalid duration %q: %w", v, err)
 		}
+		cfg.CheckInterval = d
 	}
 	if v := os.Getenv("IMAGE_WATCH_STATE_PATH"); v != "" {
 		cfg.State.Path = v
@@ -224,7 +237,7 @@ func applyEnvOverrides(cfg Config) Config {
 	if v := os.Getenv("IMAGE_WATCH_METRICS_LISTEN"); v != "" {
 		cfg.Metrics.Listen = v
 	}
-	return cfg
+	return cfg, nil
 }
 
 // validate performs minimal sanity checks.

@@ -361,3 +361,108 @@ func TestEnrichmentObserver_NilIsSafe(t *testing.T) {
 		t.Fatalf("second check error: %v", err)
 	}
 }
+
+func TestPartial_CandidateResolveErrorIsFlagged(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	reg := newFakeRegistry()
+	reg.setDigest("acme/foo", "1.2.3", "sha256:current")
+	reg.setTags("acme/foo", []string{"1.2.4"})
+	// 1.2.4 exists in the tag list, but resolving it transiently fails
+	// (e.g. a 500 or timeout) - distinct from it simply not existing.
+	reg.setResolveError("acme/foo", "1.2.4", errors.New("transient registry error"))
+
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("foo1", "ghcr.io/acme/foo:1.2.3", "sha256:current", plat),
+	}}
+	o := newTestObserver(rt, reg)
+
+	results, err := o.Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+
+	if findEvent(results[0].Events, event.PatchAvailable) != nil {
+		t.Errorf("expected no PATCH_AVAILABLE event when the candidate couldn't be resolved (can't confirm platform availability)")
+	}
+	if results[0].Err != nil {
+		t.Errorf("expected Err to remain nil (the CURRENT tag's own resolve succeeded) -- got %v", results[0].Err)
+	}
+	if !results[0].Partial {
+		t.Errorf("expected Partial=true: a candidate resolve failed even though the overall check looked successful")
+	}
+}
+
+func TestPartial_ListTagsErrorIsFlagged(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	reg := newFakeRegistry()
+	reg.setDigest("acme/foo", "1.2.3", "sha256:current")
+	reg.listErr = errors.New("registry unavailable for tag listing")
+
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("foo1", "ghcr.io/acme/foo:1.2.3", "sha256:current", plat),
+	}}
+	o := newTestObserver(rt, reg)
+
+	results, err := o.Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check error: %v", err)
+	}
+	if results[0].Err != nil {
+		t.Errorf("expected Err to remain nil, got %v", results[0].Err)
+	}
+	if !results[0].Partial {
+		t.Errorf("expected Partial=true when ListTags fails")
+	}
+}
+
+func TestPartial_CleanCheckIsNotPartial(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	reg := newFakeRegistry()
+	reg.setDigest("acme/foo", "1.2.3", "sha256:current")
+	reg.setTags("acme/foo", nil)
+
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("foo1", "ghcr.io/acme/foo:1.2.3", "sha256:current", plat),
+	}}
+	o := newTestObserver(rt, reg)
+
+	results, err := o.Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check error: %v", err)
+	}
+	if results[0].Partial {
+		t.Errorf("expected Partial=false for a fully successful check")
+	}
+}
+
+func TestCandidateResolve_DedupedWithinOneCycle(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	reg := newFakeRegistry()
+	reg.setDigest("acme/foo", "1.2.3-alpine3.22", "sha256:current")
+	// 1.2.4-alpine3.23 is simultaneously the ApplicationPatch winner AND
+	// (since it's the only tag with the newest of both components) the
+	// combined candidate
+	reg.setTags("acme/foo", []string{"1.2.4-alpine3.23"})
+	reg.setDigest("acme/foo", "1.2.4-alpine3.23", "sha256:v124")
+
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("foo1", "ghcr.io/acme/foo:1.2.3-alpine3.22", "sha256:current", plat),
+	}}
+	o := newTestObserver(rt, reg)
+
+	if _, err := o.Check(context.Background()); err != nil {
+		t.Fatalf("Check error: %v", err)
+	}
+
+	// Both ApplicationPatch and BaseAdvancement point at the same tag
+	// here (1.2.4-alpine3.23 is simultaneously the newest app version
+	// and newest base version among the one available candidate), so
+	// without memoization this would resolve twice.
+	calls := reg.resolveCalls["acme/foo/1.2.4-alpine3.23"]
+	if calls != 1 {
+		t.Errorf("expected exactly 1 resolve call for a candidate tag referenced by multiple categories, got %d", calls)
+	}
+}

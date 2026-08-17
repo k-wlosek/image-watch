@@ -78,9 +78,12 @@ func (d *Daemon) runCycle(ctx context.Context) {
 			imageName := r.Image.Registry + "/" + r.Image.Repository
 			present := make(map[event.Type]bool, len(r.Events))
 			for _, e := range r.Events {
-				present[e.Type] = true
+				if r.EffectivePolicy.Allows(e.Type) {
+					present[e.Type] = true
+				}
 			}
-			d.Metrics.UpdateAvailability(imageName, r.Err == nil, present)
+			fresh := r.Err == nil && !r.Partial
+			d.Metrics.UpdateAvailability(imageName, fresh, present)
 		}
 	}
 	if d.Metrics != nil {
@@ -114,8 +117,10 @@ func (d *Daemon) runCycle(ctx context.Context) {
 		d.Metrics.RecordCheck(time.Since(start), nil)
 	}
 
-	d.logf("check complete: %d image(s), %d failed, %d event(s), %d notification(s), took %s",
-		len(results), failedImages, countEvents(results), len(note.Items), time.Since(start).Round(time.Millisecond))
+	d.logf(
+		"check complete: %d image(s) checked, %d failed, %d event(s) detected, %d notification(s) sent, took %s",
+		len(results), failedImages, countEvents(results), len(note.Items), time.Since(start).Round(time.Millisecond),
+	)
 }
 
 func countEvents(results []observer.Result) int {

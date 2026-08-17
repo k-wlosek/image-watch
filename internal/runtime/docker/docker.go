@@ -82,9 +82,15 @@ func (c *Client) ListContainers(ctx context.Context) ([]runtime.ContainerObserva
 	}
 
 	imageCache := make(map[string]imageInspect)
+	inspectFailed := make(map[string]bool)
 	var observations []runtime.ContainerObservation
 
 	for _, cs := range containers {
+		if inspectFailed[cs.ImageID] {
+			observations = append(observations, observationFromSummaryOnly(cs))
+			continue
+		}
+
 		insp, ok := imageCache[cs.ImageID]
 		if !ok {
 			insp, err = c.inspectImage(ctx, cs.ImageID)
@@ -104,7 +110,38 @@ func (c *Client) ListContainers(ctx context.Context) ([]runtime.ContainerObserva
 		observations = append(observations, obs)
 	}
 
-	return observations, nil
+	return backfillPlatforms(observations), nil
+}
+
+// backfillPlatforms recovers the platform for containers whose image
+// inspect failed (observationFromSummaryOnly leaves Platform as the
+// zero value), by borrowing it from another container in this same
+// batch running the identical image reference that resolved successfully.
+func backfillPlatforms(observations []runtime.ContainerObservation) []runtime.ContainerObservation {
+	type refKey struct{ Registry, Repository, Tag string }
+
+	known := make(map[refKey]iwimage.Platform)
+	for _, o := range observations {
+		if o.Platform.IsZero() {
+			continue
+		}
+		known[refKey{o.Image.Registry, o.Image.Repository, o.Image.TagOrEmpty()}] = o.Platform
+	}
+
+	result := make([]runtime.ContainerObservation, 0, len(observations))
+	for _, o := range observations {
+		if !o.Platform.IsZero() {
+			result = append(result, o)
+			continue
+		}
+		key := refKey{o.Image.Registry, o.Image.Repository, o.Image.TagOrEmpty()}
+		if p, ok := known[key]; ok {
+			o.Platform = p
+			result = append(result, o)
+		}
+		// else: no sibling to borrow from -- dropped.
+	}
+	return result
 }
 
 func observationFromSummaryOnly(cs containerSummary) runtime.ContainerObservation {
@@ -146,26 +183,27 @@ func observationFromSummaryAndImage(cs containerSummary, insp imageInspect) (run
 
 // matchRepoDigest finds the RepoDigest entry for the given repository.
 func matchRepoDigest(repoDigests []string, repository string) string {
-	if len(repoDigests) == 0 {
-		return ""
-	}
 	for _, rd := range repoDigests {
 		idx := strings.LastIndex(rd, "@")
 		if idx == -1 {
 			continue
 		}
 		repoPart := rd[:idx]
-		if repoPart == repository || strings.HasSuffix(repoPart, "/"+repository) || strings.HasSuffix(repoPart, repository) {
+		if repoNamesEquivalent(repoPart, repository) {
 			return rd[idx+1:]
 		}
 	}
-	// Fall back to the only digest when there is exactly one.
-	if len(repoDigests) == 1 {
-		if idx := strings.LastIndex(repoDigests[0], "@"); idx != -1 {
-			return repoDigests[0][idx+1:]
-		}
-	}
 	return ""
+}
+
+// repoNamesEquivalent reports whether two repository name strings refer
+// to the same repository, accounting for Docker's inconsistent
+// registry-host/namespace qualification
+func repoNamesEquivalent(a, b string) bool {
+	if a == b {
+		return true
+	}
+	return strings.HasSuffix(a, "/"+b) || strings.HasSuffix(b, "/"+a)
 }
 
 func containerName(cs containerSummary) string {

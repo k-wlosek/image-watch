@@ -174,6 +174,10 @@ func printResult(r observer.Result) {
 		return
 	}
 
+	if r.Partial {
+		fmt.Println("  status:     partial (some candidate checks failed this cycle -- events below may understate what's available)")
+	}
+
 	if len(r.Events) == 0 {
 		fmt.Println("  no updates detected")
 		return

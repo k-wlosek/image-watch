@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 `
 
+const defaultNotificationRetention = 90 * 24 * time.Hour
+
 // NewSQLiteStore opens or creates a SQLite-backed Store at path.
 func NewSQLiteStore(path string) (*SQLiteStore, error) {
 	if dir := filepath.Dir(path); dir != "." {
@@ -65,7 +67,28 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("state: failed to initialize notifications schema: %w", err)
 	}
 
-	return &SQLiteStore{db: db}, nil
+	s := &SQLiteStore{db: db}
+	if _, err := s.PruneNotifications(context.Background(), defaultNotificationRetention); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("state: failed to prune old notification records: %w", err)
+	}
+
+	return s, nil
+}
+
+// PruneNotifications deletes notification-dedup fingerprints older than
+// olderThan, returning how many rows were removed.
+func (s *SQLiteStore) PruneNotifications(ctx context.Context, olderThan time.Duration) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM notifications WHERE notified_at < ?`, time.Now().Add(-olderThan))
+	if err != nil {
+		return 0, fmt.Errorf("state: failed to prune notifications: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		// Don't fail the whole operation just because we can't get the count
+		return 0, nil
+	}
+	return n, nil
 }
 
 // Close releases the underlying database handle.

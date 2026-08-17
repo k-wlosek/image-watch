@@ -99,33 +99,101 @@ func TestResolve_SinglePlatformManifest(t *testing.T) {
 	}
 }
 
-func TestPlatformMatch_VariantDefaulting(t *testing.T) {
-	// An index entry published as linux/arm64/v8 must satisfy a request for
-	// plain linux/arm64, and vice versa (OCI variant defaulting).
-	entryV8 := ociPlatform{OS: "linux", Architecture: "arm64", Variant: "v8"}
-	entryNoVariant := ociPlatform{OS: "linux", Architecture: "arm64"}
-	entryArmV7 := ociPlatform{OS: "linux", Architecture: "arm", Variant: "v7"}
+func TestResolveForPlatform_SinglePlatformManifest_Matches(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/foo/bar/manifests/1.2.3", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Docker-Content-Digest", "sha256:manifestdigest")
+		w.Header().Set("Content-Type", MediaTypeOCIManifest)
+		fmt.Fprintf(w, `{"schemaVersion":2,"mediaType":%q,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:configdigest"}}`, MediaTypeOCIManifest)
+	})
+	mux.HandleFunc("/v2/foo/bar/blobs/sha256:configdigest", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"architecture":"amd64","os":"linux"}`)
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
 
-	cases := []struct {
-		entry ociPlatform
-		want  image.Platform
-		match bool
-	}{
-		{entryV8, image.Platform{OS: "linux", Architecture: "arm64"}, true},
-		{entryV8, image.Platform{OS: "linux", Architecture: "arm64", Variant: "v8"}, true},
-		{entryNoVariant, image.Platform{OS: "linux", Architecture: "arm64"}, true},
-		{entryNoVariant, image.Platform{OS: "linux", Architecture: "arm64", Variant: "v8"}, true},
-		{entryV8, image.Platform{OS: "linux", Architecture: "arm64", Variant: "v7"}, false},
-		// arm has no default variant: empty must not match an explicit v7.
-		{entryArmV7, image.Platform{OS: "linux", Architecture: "arm"}, false},
-		{entryArmV7, image.Platform{OS: "linux", Architecture: "arm", Variant: "v7"}, true},
-		{entryNoVariant, image.Platform{OS: "darwin", Architecture: "arm64"}, false},
+	c := newTLSTestClient(t, srv, NoCredentials)
+	obs, err := c.ResolveForPlatform(context.Background(), "foo/bar", "1.2.3", image.Platform{OS: "linux", Architecture: "amd64"})
+	if err != nil {
+		t.Fatalf("ResolveForPlatform error: %v", err)
 	}
+	if obs.PlatformManifestDigest != "sha256:manifestdigest" {
+		t.Errorf("PlatformManifestDigest = %q, want sha256:manifestdigest (platform matched, should be actionable)", obs.PlatformManifestDigest)
+	}
+}
 
-	for _, tc := range cases {
-		if got := platformMatches(tc.entry, tc.want); got != tc.match {
-			t.Errorf("platformMatches(%+v, %+v) = %v, want %v", tc.entry, tc.want, got, tc.match)
+func TestResolveForPlatform_SinglePlatformManifest_Mismatch(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/foo/bar/manifests/1.2.4", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Docker-Content-Digest", "sha256:arm64onlydigest")
+		w.Header().Set("Content-Type", MediaTypeOCIManifest)
+		fmt.Fprintf(w, `{"schemaVersion":2,"mediaType":%q,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:arm64config"}}`, MediaTypeOCIManifest)
+	})
+	mux.HandleFunc("/v2/foo/bar/blobs/sha256:arm64config", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"architecture":"arm64","os":"linux"}`)
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	c := newTLSTestClient(t, srv, NoCredentials)
+	// Requesting on behalf of an amd64 host.
+	obs, err := c.ResolveForPlatform(context.Background(), "foo/bar", "1.2.4", image.Platform{OS: "linux", Architecture: "amd64"})
+	if err != nil {
+		t.Fatalf("ResolveForPlatform error: %v", err)
+	}
+	if obs.PlatformManifestDigest != "" {
+		t.Errorf("expected NO actionable digest for an arm64-only manifest requested on amd64, got %q", obs.PlatformManifestDigest)
+	}
+	if len(obs.AvailablePlatforms) != 1 || obs.AvailablePlatforms[0].Architecture != "arm64" {
+		t.Errorf("expected AvailablePlatforms = [arm64], got %v", obs.AvailablePlatforms)
+	}
+}
+
+func TestResolveForPlatform_SinglePlatformManifest_ConfigFetchFails(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/foo/bar/manifests/1.2.5", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Docker-Content-Digest", "sha256:somedigest")
+		w.Header().Set("Content-Type", MediaTypeOCIManifest)
+		fmt.Fprintf(w, `{"schemaVersion":2,"mediaType":%q,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:missingconfig"}}`, MediaTypeOCIManifest)
+	})
+	mux.HandleFunc("/v2/foo/bar/blobs/sha256:missingconfig", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	c := newTLSTestClient(t, srv, NoCredentials)
+	_, err := c.ResolveForPlatform(context.Background(), "foo/bar", "1.2.5", image.Platform{OS: "linux", Architecture: "amd64"})
+	if err == nil {
+		t.Fatal("expected an error when the config blob can't be fetched, not a silent success or silent unavailability")
+	}
+}
+
+func TestResolveForPlatform_IndexBodyFetchedOnce(t *testing.T) {
+	var manifestFetches int
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/foo/bar/manifests/latest", func(w http.ResponseWriter, r *http.Request) {
+		manifestFetches++
+		w.Header().Set("Docker-Content-Digest", "sha256:index0000")
+		w.Header().Set("Content-Type", MediaTypeOCIIndex)
+		idx := imageIndex{
+			SchemaVersion: 2,
+			MediaType:     MediaTypeOCIIndex,
+			Manifests: []indexEntry{
+				{MediaType: MediaTypeOCIManifest, Digest: "sha256:amd64digest", Platform: ociPlatform{OS: "linux", Architecture: "amd64"}},
+			},
 		}
+		json.NewEncoder(w).Encode(idx)
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	c := newTLSTestClient(t, srv, NoCredentials)
+	if _, err := c.ResolveForPlatform(context.Background(), "foo/bar", "latest", image.Platform{OS: "linux", Architecture: "amd64"}); err != nil {
+		t.Fatalf("ResolveForPlatform error: %v", err)
+	}
+	if manifestFetches != 1 {
+		t.Errorf("expected exactly 1 manifest fetch, got %d (ResolveForPlatform should not double-fetch the index body)", manifestFetches)
 	}
 }
 
@@ -360,5 +428,85 @@ func TestInstrumentation_NilInstrumentationIsSafe(t *testing.T) {
 	// c.Instrumentation is nil by default -- must not panic.
 	if _, err := c.ListTags(context.Background(), "foo/bar"); err != nil {
 		t.Fatalf("ListTags error: %v", err)
+	}
+}
+
+func TestPlatformMatch_VariantDefaulting(t *testing.T) {
+	entryV8 := image.Platform{OS: "linux", Architecture: "arm64", Variant: "v8"}
+	entryNoVariant := image.Platform{OS: "linux", Architecture: "arm64"}
+	entryArmV7 := image.Platform{OS: "linux", Architecture: "arm", Variant: "v7"}
+
+	cases := []struct {
+		entry image.Platform
+		want  image.Platform
+		match bool
+	}{
+		{entryV8, image.Platform{OS: "linux", Architecture: "arm64"}, true},
+		{entryV8, image.Platform{OS: "linux", Architecture: "arm64", Variant: "v8"}, true},
+		{entryNoVariant, image.Platform{OS: "linux", Architecture: "arm64"}, true},
+		{entryNoVariant, image.Platform{OS: "linux", Architecture: "arm64", Variant: "v8"}, true},
+		{entryV8, image.Platform{OS: "linux", Architecture: "arm64", Variant: "v7"}, false},
+		// arm has no default variant: empty must not match an explicit v7.
+		{entryArmV7, image.Platform{OS: "linux", Architecture: "arm"}, false},
+		{entryArmV7, image.Platform{OS: "linux", Architecture: "arm", Variant: "v7"}, true},
+		{entryNoVariant, image.Platform{OS: "darwin", Architecture: "arm64"}, false},
+	}
+
+	for _, tc := range cases {
+		if got := platformMatches(tc.entry, tc.want); got != tc.match {
+			t.Errorf("platformMatches(%+v, %+v) = %v, want %v", tc.entry, tc.want, got, tc.match)
+		}
+	}
+}
+
+func TestResolveForPlatform_IndexVariantDefaulting(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/foo/bar/manifests/latest", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Docker-Content-Digest", "sha256:index0000")
+		w.Header().Set("Content-Type", MediaTypeOCIIndex)
+		idx := imageIndex{
+			SchemaVersion: 2,
+			MediaType:     MediaTypeOCIIndex,
+			Manifests: []indexEntry{
+				{MediaType: MediaTypeOCIManifest, Digest: "sha256:arm64v8digest", Platform: ociPlatform{OS: "linux", Architecture: "arm64", Variant: "v8"}},
+			},
+		}
+		json.NewEncoder(w).Encode(idx)
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	c := newTLSTestClient(t, srv, NoCredentials)
+	obs, err := c.ResolveForPlatform(context.Background(), "foo/bar", "latest", image.Platform{OS: "linux", Architecture: "arm64"})
+	if err != nil {
+		t.Fatalf("ResolveForPlatform error: %v", err)
+	}
+	if obs.PlatformManifestDigest != "sha256:arm64v8digest" {
+		t.Errorf("expected the arm64/v8 index entry to satisfy a plain arm64 request, got PlatformManifestDigest=%q", obs.PlatformManifestDigest)
+	}
+}
+
+func TestResolveForPlatform_SinglePlatformManifest_VariantDefaulting(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/foo/bar/manifests/1.0.0", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Docker-Content-Digest", "sha256:singlearm64digest")
+		w.Header().Set("Content-Type", MediaTypeOCIManifest)
+		fmt.Fprintf(w, `{"schemaVersion":2,"mediaType":%q,"config":{"mediaType":"application/vnd.oci.image.config.v1+json","digest":"sha256:arm64cfg"}}`, MediaTypeOCIManifest)
+	})
+	mux.HandleFunc("/v2/foo/bar/blobs/sha256:arm64cfg", func(w http.ResponseWriter, r *http.Request) {
+		// Config blob reports variant "v8" explicitly.
+		fmt.Fprint(w, `{"architecture":"arm64","os":"linux","variant":"v8"}`)
+	})
+	srv := httptest.NewTLSServer(mux)
+	defer srv.Close()
+
+	c := newTLSTestClient(t, srv, NoCredentials)
+	// Host requests plain arm64, no variant -- must still match.
+	obs, err := c.ResolveForPlatform(context.Background(), "foo/bar", "1.0.0", image.Platform{OS: "linux", Architecture: "arm64"})
+	if err != nil {
+		t.Fatalf("ResolveForPlatform error: %v", err)
+	}
+	if obs.PlatformManifestDigest != "sha256:singlearm64digest" {
+		t.Errorf("expected a config blob reporting arm64/v8 to satisfy a plain arm64 request, got PlatformManifestDigest=%q", obs.PlatformManifestDigest)
 	}
 }

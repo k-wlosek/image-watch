@@ -180,14 +180,19 @@ func TestApplyEnvOverrides_Precedence(t *testing.T) {
 	}
 }
 
-func TestApplyEnvOverrides_InvalidValueIgnored(t *testing.T) {
+func TestApplyEnvOverrides_InvalidValueErrors(t *testing.T) {
 	t.Setenv("IMAGE_WATCH_CHECK_INTERVAL", "not-a-duration")
-	cfg, err := Load("")
-	if err != nil {
-		t.Fatalf("Load should not fail on an invalid env override, got: %v", err)
+	_, err := Load("")
+	if err == nil {
+		t.Fatal("expected Load to return an error for an invalid IMAGE_WATCH_CHECK_INTERVAL, not silently fall back to the default")
 	}
-	if cfg.CheckInterval != 6*time.Hour {
-		t.Errorf("expected an invalid env override to be silently ignored, falling back to default, got %s", cfg.CheckInterval)
+}
+
+func TestLoad_NoFileStillValidates(t *testing.T) {
+	t.Setenv("IMAGE_WATCH_RUNTIME_TYPE", "podman") // unsupported runtime type
+	_, err := Load("")
+	if err == nil {
+		t.Fatal("expected Load(\"\") with no config file to still validate the final config and reject an unsupported runtime type")
 	}
 }
 

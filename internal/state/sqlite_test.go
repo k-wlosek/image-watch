@@ -180,6 +180,67 @@ func TestSQLiteStore_NotificationDedupSurvivesRestart(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_PruneNotifications(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewSQLiteStore(filepath.Join(dir, "state.db"))
+	if err != nil {
+		t.Fatalf("NewSQLiteStore error: %v", err)
+	}
+	defer s.Close()
+
+	if err := s.MarkNotified(context.Background(), "fresh"); err != nil {
+		t.Fatalf("MarkNotified error: %v", err)
+	}
+
+	oldTime := time.Now().Add(-100 * 24 * time.Hour)
+	if _, err := s.db.Exec(`INSERT INTO notifications (fingerprint, notified_at) VALUES (?, ?)`, "old", oldTime); err != nil {
+		t.Fatalf("failed to seed an old fingerprint: %v", err)
+	}
+
+	removed, err := s.PruneNotifications(context.Background(), defaultNotificationRetention)
+	if err != nil {
+		t.Fatalf("PruneNotifications error: %v", err)
+	}
+	if removed != 1 {
+		t.Errorf("expected 1 row pruned, got %d", removed)
+	}
+
+	freshStillThere, _ := s.HasNotified(context.Background(), "fresh")
+	if !freshStillThere {
+		t.Errorf("expected the fresh (recently-notified) fingerprint to survive pruning")
+	}
+	oldGone, _ := s.HasNotified(context.Background(), "old")
+	if oldGone {
+		t.Errorf("expected the old fingerprint to have been pruned")
+	}
+}
+
+func TestSQLiteStore_PruneNotificationsRunsAutomaticallyOnOpen(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.db")
+
+	s1, err := NewSQLiteStore(path)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore (process 1) error: %v", err)
+	}
+	oldTime := time.Now().Add(-200 * 24 * time.Hour)
+	if _, err := s1.db.Exec(`INSERT INTO notifications (fingerprint, notified_at) VALUES (?, ?)`, "ancient", oldTime); err != nil {
+		t.Fatalf("failed to seed an old fingerprint: %v", err)
+	}
+	s1.Close()
+
+	s2, err := NewSQLiteStore(path)
+	if err != nil {
+		t.Fatalf("NewSQLiteStore (process 2) error: %v", err)
+	}
+	defer s2.Close()
+
+	stillThere, _ := s2.HasNotified(context.Background(), "ancient")
+	if stillThere {
+		t.Errorf("expected the ancient fingerprint to have been pruned automatically on reopen")
+	}
+}
+
 func TestSQLiteStore_CreatesParentDirectory(t *testing.T) {
 	dir := t.TempDir()
 	// NewSQLiteStore should create missing parent directories.
