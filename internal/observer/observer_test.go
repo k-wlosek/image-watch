@@ -712,7 +712,7 @@ func TestCandidateResolve_DedupedWithinOneCycle(t *testing.T) {
 	// here (1.2.4-alpine3.23 is simultaneously the newest app version
 	// and newest base version among the one available candidate), so
 	// without memoization this would resolve twice.
-	calls := reg.resolveCalls["acme/foo/1.2.4-alpine3.23"]
+	calls := reg.resolveCallsCount("acme/foo", "1.2.4-alpine3.23")
 	if calls != 1 {
 		t.Errorf("expected exactly 1 resolve call for a candidate tag referenced by multiple categories, got %d", calls)
 	}

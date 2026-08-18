@@ -3,6 +3,8 @@ package observer
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/example/image-watch/internal/image"
 	"github.com/example/image-watch/internal/registry"
@@ -21,8 +23,12 @@ func (f *fakeRuntime) ListContainers(ctx context.Context) ([]iwruntime.Container
 	return f.containers, f.err
 }
 
-// fakeRegistry is a test double for registry.Registry.
+// fakeRegistry is a test double for registry.Registry, safe for concurrent
+// use (Check runs groups in parallel, so multiple goroutines may resolve
+// through the same instance).
 type fakeRegistry struct {
+	mu sync.Mutex
+
 	tags      map[string][]string          // repository -> tags
 	manifests map[string]map[string]string // repository -> tag -> platform manifest digest
 	// indexDigests maps repository -> tag -> index (multi-arch) digest.
@@ -40,9 +46,22 @@ type fakeRegistry struct {
 	resolveCalls map[string]int
 
 	// resolveOrder logs each ResolveForPlatform invocation as
-	// "repository/tag" in call order, so tests can assert resolution
-	// ordering (e.g. enrichment trying the newest tag first).
+	// "repository/tag" in completion order. With concurrent resolution
+	// the order is only meaningful for single-group, small-window tests.
 	resolveOrder []string
+
+	// listCalls counts ListTags invocations per repository, so tests can
+	// assert shared tag lists are fetched once per group.
+	listCalls map[string]int
+
+	// delays adds an artificial latency per "repository/tag" resolve, so
+	// tests can exercise completion-order races deterministically.
+	delays map[string]time.Duration
+
+	// inFlight/maxInFlight track how many resolves are outstanding at
+	// once, so tests can prove parallel execution actually overlaps.
+	inFlight    int
+	maxInFlight int
 }
 
 func newFakeRegistry() *fakeRegistry {
@@ -53,14 +72,20 @@ func newFakeRegistry() *fakeRegistry {
 		platformsFor: make(map[string]map[string][]image.Platform),
 		resolveErr:   make(map[string]error),
 		resolveCalls: make(map[string]int),
+		delays:       make(map[string]time.Duration),
+		listCalls:    make(map[string]int),
 	}
 }
 
 func (f *fakeRegistry) setTags(repository string, tags []string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.tags[repository] = tags
 }
 
 func (f *fakeRegistry) setDigest(repository, tag, digest string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.manifests[repository] == nil {
 		f.manifests[repository] = make(map[string]string)
 	}
@@ -69,6 +94,8 @@ func (f *fakeRegistry) setDigest(repository, tag, digest string) {
 
 // setIndexDigest attaches a distinct multi-arch index digest to a tag.
 func (f *fakeRegistry) setIndexDigest(repository, tag, digest string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.indexDigests[repository] == nil {
 		f.indexDigests[repository] = make(map[string]string)
 	}
@@ -78,6 +105,8 @@ func (f *fakeRegistry) setIndexDigest(repository, tag, digest string) {
 // setPlatforms restricts which platforms a repository+tag's manifest is
 // available for.
 func (f *fakeRegistry) setPlatforms(repository, tag string, platforms []image.Platform) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.platformsFor[repository] == nil {
 		f.platformsFor[repository] = make(map[string][]image.Platform)
 	}
@@ -85,14 +114,40 @@ func (f *fakeRegistry) setPlatforms(repository, tag string, platforms []image.Pl
 }
 
 func (f *fakeRegistry) setResolveError(repository, tag string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.resolveErr[repository+"/"+tag] = err
 }
 
+// setResolveDelay adds an artificial latency to one repository/tag resolve.
+func (f *fakeRegistry) setResolveDelay(repository, tag string, d time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.delays[repository+"/"+tag] = d
+}
+
+// resolveCallsCount returns how many times repository/tag was resolved.
+func (f *fakeRegistry) resolveCallsCount(repository, tag string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.resolveCalls[repository+"/"+tag]
+}
+
 func (f *fakeRegistry) ListTags(ctx context.Context, repository string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.listCalls[repository]++
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
 	return f.tags[repository], nil
+}
+
+// listCallsCount returns how many times a repository's tags were listed.
+func (f *fakeRegistry) listCallsCount(repository string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.listCalls[repository]
 }
 
 func (f *fakeRegistry) Resolve(ctx context.Context, repository, reference string) (registry.ManifestObservation, error) {
@@ -100,18 +155,44 @@ func (f *fakeRegistry) Resolve(ctx context.Context, repository, reference string
 }
 
 func (f *fakeRegistry) ResolveForPlatform(ctx context.Context, repository, reference string, platform image.Platform) (registry.ManifestObservation, error) {
+	f.mu.Lock()
+	f.inFlight++
+	if f.inFlight > f.maxInFlight {
+		f.maxInFlight = f.inFlight
+	}
+	delay := f.delays[repository+"/"+reference]
+	f.mu.Unlock()
+
+	defer func() {
+		f.mu.Lock()
+		f.inFlight--
+		f.mu.Unlock()
+	}()
+
+	if delay > 0 {
+		select {
+		case <-time.After(delay):
+		case <-ctx.Done():
+		}
+	}
+
+	f.mu.Lock()
 	f.resolveCalls[repository+"/"+reference]++
 	f.resolveOrder = append(f.resolveOrder, repository+"/"+reference)
+	checkErr := f.resolveErr[repository+"/"+reference]
+	digest, have := f.manifests[repository][reference]
+	restricted := f.platformsFor[repository][reference]
+	indexDigest := f.indexDigests[repository][reference]
+	f.mu.Unlock()
 
-	if err, ok := f.resolveErr[repository+"/"+reference]; ok {
-		return registry.ManifestObservation{}, err
+	if checkErr != nil {
+		return registry.ManifestObservation{}, checkErr
 	}
-	digest, ok := f.manifests[repository][reference]
-	if !ok {
+	if !have {
 		return registry.ManifestObservation{}, fmt.Errorf("fakeRegistry: no manifest for %s:%s", repository, reference)
 	}
 
-	if restricted, ok := f.platformsFor[repository][reference]; ok {
+	if restricted != nil {
 		matched := false
 		for _, p := range restricted {
 			if p.Equal(platform) {
@@ -126,7 +207,7 @@ func (f *fakeRegistry) ResolveForPlatform(ctx context.Context, repository, refer
 
 	return registry.ManifestObservation{
 		PlatformManifestDigest: digest,
-		IndexDigest:            f.indexDigests[repository][reference],
+		IndexDigest:            indexDigest,
 	}, nil
 }
 

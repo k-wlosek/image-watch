@@ -3,7 +3,11 @@ package observer
 
 import (
 	"context"
+	"sort"
+	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 
 	"github.com/example/image-watch/internal/event"
 	"github.com/example/image-watch/internal/image"
@@ -21,6 +25,10 @@ type RegistryResolver func(registryHost string) registry.Registry
 // observation entirely: no result, events, metrics, or notifications.
 const skipLabel = "image-watch.skip"
 
+// defaultConcurrencyWorkers bounds how many image groups are checked in
+// parallel when the observer's ConcurrencyWorkers is left unset.
+const defaultConcurrencyWorkers = 4
+
 // Observer performs one check cycle.
 type Observer struct {
 	Runtime       iwruntime.Runtime
@@ -31,6 +39,11 @@ type Observer struct {
 	// EnrichmentMaxTags and EnrichmentTimeout bound enrichment.
 	EnrichmentMaxTags int
 	EnrichmentTimeout time.Duration
+
+	// ConcurrencyWorkers bounds how many image groups are resolved in
+	// parallel during Check, and how many manifest fetches an enrichment
+	// scan runs concurrently.
+	ConcurrencyWorkers int
 
 	// Metrics is an optional enrichment telemetry hook.
 	Metrics EnrichmentObserver
@@ -81,6 +94,26 @@ func (g groupKey) stateKey() state.Key {
 	return state.Key{Registry: g.Registry, Repository: g.Repository, Tag: g.Tag, Platform: g.Platform}
 }
 
+// less orders groupKey deterministically (registry, repository, tag, platform).
+func (g groupKey) less(o groupKey) bool {
+	if g.Registry != o.Registry {
+		return g.Registry < o.Registry
+	}
+	if g.Repository != o.Repository {
+		return g.Repository < o.Repository
+	}
+	if g.Tag != o.Tag {
+		return g.Tag < o.Tag
+	}
+	if g.Platform.OS != o.Platform.OS {
+		return g.Platform.OS < o.Platform.OS
+	}
+	if g.Platform.Architecture != o.Platform.Architecture {
+		return g.Platform.Architecture < o.Platform.Architecture
+	}
+	return g.Platform.Variant < o.Platform.Variant
+}
+
 // Check performs one detection cycle.
 func (o *Observer) Check(ctx context.Context) ([]Result, error) {
 	containers, err := o.Runtime.ListContainers(ctx)
@@ -89,12 +122,62 @@ func (o *Observer) Check(ctx context.Context) ([]Result, error) {
 	}
 
 	groups := groupContainers(containers)
-
-	results := make([]Result, 0, len(groups))
-	for key, members := range groups {
-		results = append(results, o.checkGroup(ctx, key, members))
+	if len(groups) == 0 {
+		return nil, nil
 	}
+
+	// Groups run on a bounded worker pool. Keys are sorted first so the
+	// result order is deterministic regardless of scheduling or timing;
+	// each worker writes its own results slot, so no locking is needed.
+	keys := sortedGroupKeys(groups)
+	results := make([]Result, len(keys))
+
+	g := new(errgroup.Group)
+	g.SetLimit(o.workers(len(keys)))
+	for i, key := range keys {
+		i, key := i, key
+		members := groups[key]
+		g.Go(func() error {
+			results[i] = o.checkGroup(ctx, key, members)
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
 	return results, nil
+}
+
+// sortedGroupKeys returns the group keys in deterministic order.
+func sortedGroupKeys(groups map[groupKey][]iwruntime.ContainerObservation) []groupKey {
+	keys := make([]groupKey, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i].less(keys[j]) })
+	return keys
+}
+
+// workerLimit returns the configured parallel registry-operation budget.
+func (o *Observer) workerLimit() int {
+	w := o.ConcurrencyWorkers
+	if w <= 0 {
+		w = defaultConcurrencyWorkers
+	}
+	if w < 1 {
+		w = 1
+	}
+	return w
+}
+
+// workers bounds the pool size by both the configured limit and n.
+func (o *Observer) workers(n int) int {
+	w := o.workerLimit()
+	if w > n {
+		w = n
+	}
+	return w
 }
 
 // groupContainers collapses containers sharing the same image reference.
@@ -178,13 +261,21 @@ func (o *Observer) checkGroup(ctx context.Context, key groupKey, members []iwrun
 
 	tv := version.ParseTag(key.Tag)
 
-	digestEvents := o.detectDigestEvents(ctx, reg, key, tv, previous, found, registryObs)
+	// Opaque tags may need best-effort enrichment; share one tag-list
+	// fetch across every enrichment attempt in this group so multiple
+	// drifted running digests don't each re-list the repository.
+	var cache *groupCache
+	if tv.IsOpaque() {
+		cache = newGroupCache()
+	}
+
+	digestEvents := o.detectDigestEvents(ctx, reg, key, tv, previous, found, registryObs, cache)
 	candidateEvents, candidatesPartial := o.detectVersionCandidateEvents(ctx, reg, key)
 	result.Events = append(result.Events, digestEvents...)
 	if len(digestEvents) == 0 {
 		// No digest transition this cycle, so surface point-in-time drift:
 		// containers running a different digest than the registry serves.
-		result.Events = append(result.Events, o.detectDigestDriftEvents(ctx, reg, key, tv, result.ServedDigest, registryObs.PlatformManifestDigest, result.ContainerDigests)...)
+		result.Events = append(result.Events, o.detectDigestDriftEvents(ctx, reg, key, tv, result.ServedDigest, registryObs.PlatformManifestDigest, result.ContainerDigests, cache)...)
 	}
 	result.Events = append(result.Events, candidateEvents...)
 	if candidatesPartial {
@@ -209,7 +300,7 @@ func (o *Observer) markStale(ctx context.Context, key groupKey, checkErr error) 
 }
 
 // detectDigestEvents compares digests over time.
-func (o *Observer) detectDigestEvents(ctx context.Context, reg registry.Registry, key groupKey, tv version.TagVersion, previous state.Observation, found bool, registryObs registry.ManifestObservation) []event.Event {
+func (o *Observer) detectDigestEvents(ctx context.Context, reg registry.Registry, key groupKey, tv version.TagVersion, previous state.Observation, found bool, registryObs registry.ManifestObservation, cache *groupCache) []event.Event {
 	if !found || previous.PlatformManifestDigest == "" || registryObs.PlatformManifestDigest == "" {
 		return nil
 	}
@@ -229,7 +320,7 @@ func (o *Observer) detectDigestEvents(ctx context.Context, reg registry.Registry
 	ev.Type = digestEventType(tv)
 	if tv.IsOpaque() {
 		// Best-effort enrichment.
-		if inferredTag, ok := o.attemptEnrichment(ctx, reg, key, registryObs.PlatformManifestDigest); ok {
+		if inferredTag, ok := o.attemptEnrichment(ctx, reg, key, registryObs.PlatformManifestDigest, cache); ok {
 			ev.CandidateTag = inferredTag
 		}
 	}
@@ -249,20 +340,56 @@ func digestEventType(tv version.TagVersion) event.Type {
 
 // detectDigestDriftEvents surfaces containers running a different digest
 // than the registry currently serves for their tag.
-func (o *Observer) detectDigestDriftEvents(ctx context.Context, reg registry.Registry, key groupKey, tv version.TagVersion, served, platformDigest string, running []string) []event.Event {
+func (o *Observer) detectDigestDriftEvents(ctx context.Context, reg registry.Registry, key groupKey, tv version.TagVersion, served, platformDigest string, running []string, cache *groupCache) []event.Event {
 	if served == "" {
 		return nil
 	}
 
-	ref := image.Reference{Registry: key.Registry, Repository: key.Repository, Tag: &key.Tag}
-	var events []event.Event
+	// Distinct running digests (the enrichment work is shared across them).
+	var distinct []string
 	seen := make(map[string]bool)
 	for _, dig := range running {
 		if dig == "" || dig == served || seen[dig] {
 			continue
 		}
 		seen[dig] = true
+		distinct = append(distinct, dig)
+	}
+	if len(distinct) == 0 {
+		return nil
+	}
 
+	// Enrichment for each drifted digest is independent, so run the scans
+	// concurrently, bounded by the same worker budget.
+	inferred := make([]string, len(distinct))
+	enriched := make([]bool, len(distinct))
+	if tv.IsOpaque() && len(distinct) > 1 {
+		var wg sync.WaitGroup
+		sem := make(chan struct{}, o.workerLimit())
+		for i := range distinct {
+			i := i
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+				if t, ok := o.attemptEnrichment(ctx, reg, key, platformDigest, cache); ok {
+					inferred[i] = t
+					enriched[i] = true
+				}
+			}()
+		}
+		wg.Wait()
+	} else if tv.IsOpaque() {
+		if t, ok := o.attemptEnrichment(ctx, reg, key, platformDigest, cache); ok {
+			inferred[0] = t
+			enriched[0] = true
+		}
+	}
+
+	ref := image.Reference{Registry: key.Registry, Repository: key.Repository, Tag: &key.Tag}
+	events := make([]event.Event, 0, len(distinct))
+	for i, dig := range distinct {
 		ev := event.Event{
 			Timestamp:       o.now(),
 			Image:           ref,
@@ -272,11 +399,8 @@ func (o *Observer) detectDigestDriftEvents(ctx context.Context, reg registry.Reg
 			CandidateDigest: served,
 			Platform:        key.Platform,
 		}
-		if tv.IsOpaque() {
-			// Best-effort enrichment.
-			if inferredTag, ok := o.attemptEnrichment(ctx, reg, key, platformDigest); ok {
-				ev.CandidateTag = inferredTag
-			}
+		if enriched[i] {
+			ev.CandidateTag = inferred[i]
 		}
 		events = append(events, ev)
 	}
@@ -303,39 +427,66 @@ func (o *Observer) detectVersionCandidateEvents(ctx context.Context, reg registr
 	cs := version.AnalyzeCandidates(key.Tag, tags)
 	ref := image.Reference{Registry: key.Registry, Repository: key.Repository, Tag: &key.Tag}
 
-	// resolveCache memoizes ResolveForPlatform calls by candidate tag
-	// within this single invocation.
-	type resolveResult struct {
-		obs registry.ManifestObservation
-		err error
+	// Winners are resolved concurrently (they're independent), then events
+	// are assembled in canonical order so the result is deterministic.
+	type candidateEntry struct {
+		t event.Type
+		c *version.Candidate
 	}
-	resolveCache := make(map[string]resolveResult)
-	resolveCandidate := func(tag string) (registry.ManifestObservation, error) {
-		if r, ok := resolveCache[tag]; ok {
-			return r.obs, r.err
-		}
-		obs, err := reg.ResolveForPlatform(ctx, key.Repository, tag, key.Platform)
-		resolveCache[tag] = resolveResult{obs, err}
-		return obs, err
-	}
-
-	var events []event.Event
-	partial := false
-
-	// add resolves each winning candidate's manifest for the running
-	// platform before emitting anything
+	var entries []candidateEntry
 	add := func(t event.Type, c *version.Candidate) {
-		if c == nil {
-			return
+		if c != nil {
+			entries = append(entries, candidateEntry{t, c})
 		}
+	}
+	add(event.PatchAvailable, cs.Patch)
+	add(event.MinorAvailable, cs.Minor)
+	add(event.MajorAvailable, cs.Major)
+	add(event.FamilyAdvancementAvailable, cs.FamilyAdvancement)
+	add(event.ApplicationPatchAvailable, cs.ApplicationPatch)
+	add(event.ApplicationMinorAvailable, cs.ApplicationMinor)
+	add(event.ApplicationMajorAvailable, cs.ApplicationMajor)
+	add(event.BaseAdvancementAvailable, cs.BaseAdvancement)
+	if len(entries) == 0 {
+		return nil, false
+	}
 
-		actualType := t
-		obs, err := resolveCandidate(c.Tag)
+	// Resolve each distinct winning candidate once for the running platform.
+	distinct := make([]string, 0, len(entries))
+	index := make(map[string]int)
+	for _, e := range entries {
+		if _, ok := index[e.c.Tag]; !ok {
+			index[e.c.Tag] = len(distinct)
+			distinct = append(distinct, e.c.Tag)
+		}
+	}
+
+	opts := make([]registry.ManifestObservation, len(distinct))
+	errs := make([]error, len(distinct))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, o.workerLimit())
+	for i, tag := range distinct {
+		i, tag := i, tag
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			opts[i], errs[i] = reg.ResolveForPlatform(ctx, key.Repository, tag, key.Platform)
+		}()
+	}
+	wg.Wait()
+
+	partial := false
+	events := make([]event.Event, 0, len(entries))
+	for _, e := range entries {
+		obs, err := opts[index[e.c.Tag]], errs[index[e.c.Tag]]
 		if err != nil {
 			// Can't determine platform availability.
 			partial = true
-			return
+			continue
 		}
+		actualType := e.t
 		if obs.PlatformManifestDigest == "" {
 			// No manifest for the running platform.
 			actualType = event.OtherPlatformUpdate
@@ -346,23 +497,14 @@ func (o *Observer) detectVersionCandidateEvents(ctx context.Context, reg registr
 			Image:        ref,
 			Type:         actualType,
 			CurrentTag:   key.Tag,
-			CandidateTag: c.Tag,
+			CandidateTag: e.c.Tag,
 			Platform:     key.Platform,
 		}
-		if cs.Combined != nil && (t == event.ApplicationPatchAvailable || t == event.ApplicationMinorAvailable || t == event.ApplicationMajorAvailable || t == event.BaseAdvancementAvailable) {
+		if cs.Combined != nil && (e.t == event.ApplicationPatchAvailable || e.t == event.ApplicationMinorAvailable || e.t == event.ApplicationMajorAvailable || e.t == event.BaseAdvancementAvailable) {
 			ev.CombinedCandidate = cs.Combined.Tag
 		}
 		events = append(events, ev)
 	}
-
-	add(event.PatchAvailable, cs.Patch)
-	add(event.MinorAvailable, cs.Minor)
-	add(event.MajorAvailable, cs.Major)
-	add(event.FamilyAdvancementAvailable, cs.FamilyAdvancement)
-	add(event.ApplicationPatchAvailable, cs.ApplicationPatch)
-	add(event.ApplicationMinorAvailable, cs.ApplicationMinor)
-	add(event.ApplicationMajorAvailable, cs.ApplicationMajor)
-	add(event.BaseAdvancementAvailable, cs.BaseAdvancement)
 
 	return events, partial
 }

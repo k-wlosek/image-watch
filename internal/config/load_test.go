@@ -232,6 +232,42 @@ func TestLoad_InvalidEnrichmentErrors(t *testing.T) {
 	}
 }
 
+func TestLoad_ConcurrencyParsed(t *testing.T) {
+	path := writeConfig(t, `
+concurrency:
+  workers: 8
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Concurrency.Workers != 8 {
+		t.Errorf("Concurrency.Workers = %d, want 8", cfg.Concurrency.Workers)
+	}
+}
+
+func TestLoad_ConcurrencyDefaults(t *testing.T) {
+	path := writeConfig(t, `check_interval: 30m`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Concurrency.Workers != DefaultConcurrencyConfig().Workers {
+		t.Errorf("expected concurrency.workers to keep its default, got %d", cfg.Concurrency.Workers)
+	}
+}
+
+func TestLoad_InvalidConcurrencyErrors(t *testing.T) {
+	for _, workers := range []string{"0", "-1"} {
+		t.Run("workers="+workers, func(t *testing.T) {
+			_, err := Load(writeConfig(t, "concurrency:\n  workers: "+workers))
+			if err == nil {
+				t.Fatal("expected an error for concurrency.workers < 1")
+			}
+		})
+	}
+}
+
 func TestApplyEnvOverrides_Precedence(t *testing.T) {
 	path := writeConfig(t, `check_interval: 30m`)
 

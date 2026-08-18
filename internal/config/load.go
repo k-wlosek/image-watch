@@ -121,6 +121,10 @@ type rawConfig struct {
 		Timeout string `yaml:"timeout"`
 	} `yaml:"enrichment"`
 
+	Concurrency *struct {
+		Workers *int `yaml:"workers"`
+	} `yaml:"concurrency"`
+
 	Registries map[string]struct {
 		UsernameEnv string `yaml:"username_env"`
 		PasswordEnv string `yaml:"password_env"`
@@ -215,6 +219,10 @@ func mergeRaw(cfg Config, raw rawConfig) (Config, error) {
 		}
 	}
 
+	if raw.Concurrency != nil && raw.Concurrency.Workers != nil {
+		cfg.Concurrency.Workers = *raw.Concurrency.Workers
+	}
+
 	if raw.Registries != nil {
 		if cfg.Registries == nil {
 			cfg.Registries = make(map[string]RegistryAuthConfig)
@@ -290,6 +298,9 @@ func validate(cfg Config) error {
 	}
 	if cfg.Enrichment.Timeout <= 0 {
 		return fmt.Errorf("enrichment.timeout must be positive, got %s", cfg.Enrichment.Timeout)
+	}
+	if cfg.Concurrency.Workers < 1 {
+		return fmt.Errorf("concurrency.workers must be at least 1, got %d", cfg.Concurrency.Workers)
 	}
 	return nil
 }

@@ -18,6 +18,7 @@ type Config struct {
 	Metrics       MetricsConfig
 	State         StateConfig
 	Enrichment    EnrichmentConfig
+	Concurrency   ConcurrencyConfig
 	Registries    map[string]RegistryAuthConfig
 }
 
@@ -92,6 +93,20 @@ func DefaultEnrichmentConfig() EnrichmentConfig {
 	}
 }
 
+// ConcurrencyConfig bounds how many registry operations run in parallel
+// during a check cycle.
+type ConcurrencyConfig struct {
+	// Workers is the maximum number of image groups checked at once; it also
+	// bounds how many candidate manifests an enrichment scan resolves
+	// concurrently.
+	Workers int
+}
+
+// DefaultConcurrencyConfig returns the default concurrency limits.
+func DefaultConcurrencyConfig() ConcurrencyConfig {
+	return ConcurrencyConfig{Workers: 4}
+}
+
 // RegistryAuthConfig configures credentials and TLS trust for one registry host.
 type RegistryAuthConfig struct {
 	UsernameEnv string
@@ -128,7 +143,8 @@ func Default() Config {
 		State: StateConfig{
 			Path: "/var/lib/image-watch/state.db",
 		},
-		Enrichment: DefaultEnrichmentConfig(),
-		Registries: map[string]RegistryAuthConfig{},
+		Enrichment:  DefaultEnrichmentConfig(),
+		Concurrency: DefaultConcurrencyConfig(),
+		Registries:  map[string]RegistryAuthConfig{},
 	}
 }

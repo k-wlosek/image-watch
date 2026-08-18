@@ -27,7 +27,10 @@ func TestAttemptEnrichment_NewestMatchFirst(t *testing.T) {
 	reg.setDigest("acme/foo", "2.0.0", "sha256:match")
 
 	o := newTestObserver(&fakeRuntime{}, reg)
-	tag, ok := o.attemptEnrichment(context.Background(), reg, enrichmentKey(), "sha256:match")
+	// Sequential scan (window 1): this test asserts the strict
+	// newest-first short-circuit, so only the match should resolve.
+	o.ConcurrencyWorkers = 1
+	tag, ok := o.attemptEnrichment(context.Background(), reg, enrichmentKey(), "sha256:match", newGroupCache())
 	if !ok || tag != "2.0.0" {
 		t.Fatalf("enrichment = %q, %v; want 2.0.0, true", tag, ok)
 	}
@@ -43,7 +46,7 @@ func TestAttemptEnrichment_NoMatch(t *testing.T) {
 	reg.setDigest("acme/foo", "2.0.0", "sha256:b")
 
 	o := newTestObserver(&fakeRuntime{}, reg)
-	tag, ok := o.attemptEnrichment(context.Background(), reg, enrichmentKey(), "sha256:nope")
+	tag, ok := o.attemptEnrichment(context.Background(), reg, enrichmentKey(), "sha256:nope", newGroupCache())
 	if ok {
 		t.Fatalf("expected no match, got %q", tag)
 	}
@@ -61,7 +64,10 @@ func TestAttemptEnrichment_RespectsMaxTags(t *testing.T) {
 
 	o := newTestObserver(&fakeRuntime{}, reg)
 	o.EnrichmentMaxTags = 2
-	tag, ok := o.attemptEnrichment(context.Background(), reg, enrichmentKey(), "sha256:1.0.0")
+	// Window 1 keeps resolution order deterministic for the ordering
+	// assertion below.
+	o.ConcurrencyWorkers = 1
+	tag, ok := o.attemptEnrichment(context.Background(), reg, enrichmentKey(), "sha256:1.0.0", newGroupCache())
 	if ok {
 		t.Fatalf("expected the cap to stop before reaching 1.0.0, got %q", tag)
 	}
@@ -80,7 +86,10 @@ func TestAttemptEnrichment_SkipsCurrentAndNonVersion(t *testing.T) {
 	reg.setDigest("acme/foo", "1.2.4", "sha256:match")
 
 	o := newTestObserver(&fakeRuntime{}, reg)
-	tag, ok := o.attemptEnrichment(context.Background(), reg, enrichmentKey(), "sha256:match")
+	// Window 1 keeps the sequential short-circuit semantics this test
+	// asserts (only the newest matching tag resolves).
+	o.ConcurrencyWorkers = 1
+	tag, ok := o.attemptEnrichment(context.Background(), reg, enrichmentKey(), "sha256:match", newGroupCache())
 	if !ok || tag != "1.2.4" {
 		t.Fatalf("enrichment = %q, %v; want 1.2.4, true", tag, ok)
 	}

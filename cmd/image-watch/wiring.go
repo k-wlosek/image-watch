@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/example/image-watch/internal/config"
@@ -34,6 +35,7 @@ func buildObserver(cfg config.Config, m *metrics.Metrics) (*observer.Observer, e
 		return nil, fmt.Errorf("failed to open state store at %s: %w", cfg.State.Path, err)
 	}
 
+	var registryMu sync.Mutex
 	registryClients := make(map[string]registry.Registry)
 	credentials := credentialProviderFor(cfg)
 
@@ -54,6 +56,8 @@ func buildObserver(cfg config.Config, m *metrics.Metrics) (*observer.Observer, e
 	}
 
 	resolver := func(host string) registry.Registry {
+		registryMu.Lock()
+		defer registryMu.Unlock()
 		if c, ok := registryClients[host]; ok {
 			return c
 		}
@@ -66,12 +70,13 @@ func buildObserver(cfg config.Config, m *metrics.Metrics) (*observer.Observer, e
 	}
 
 	obs := &observer.Observer{
-		Runtime:           dockerClient,
-		Registries:        resolver,
-		Store:             store,
-		DefaultPolicy:     cfg.Policy,
-		EnrichmentMaxTags: cfg.Enrichment.MaxTags,
-		EnrichmentTimeout: cfg.Enrichment.Timeout,
+		Runtime:            dockerClient,
+		Registries:         resolver,
+		Store:              store,
+		DefaultPolicy:      cfg.Policy,
+		EnrichmentMaxTags:  cfg.Enrichment.MaxTags,
+		EnrichmentTimeout:  cfg.Enrichment.Timeout,
+		ConcurrencyWorkers: cfg.Concurrency.Workers,
 	}
 	if m != nil {
 		obs.Metrics = enrichmentObserver{m}
