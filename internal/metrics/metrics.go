@@ -38,8 +38,11 @@ type Metrics struct {
 	Images     prometheus.Gauge
 
 	// UpdatesAvailable and ObservationStale track stale observations.
-	UpdatesAvailable *prometheus.GaugeVec // labels: image, type
-	ObservationStale *prometheus.GaugeVec // labels: image
+	// The (image, tag, platform) label set mirrors observer.groupKey, so each
+	// running image stream owns distinct series instead of racing for a
+	// shared (image, type) key when a repository runs several tags.
+	UpdatesAvailable *prometheus.GaugeVec // labels: image, tag, platform, type
+	ObservationStale *prometheus.GaugeVec // labels: image, tag, platform
 
 	NotificationsTotal      prometheus.Counter
 	NotificationErrorsTotal prometheus.Counter
@@ -83,12 +86,12 @@ func New() *Metrics {
 
 		UpdatesAvailable: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "image_watch_updates_available",
-			Help: "Whether an update is currently known to be available (1) or not (0), per image and event type. Retains its last-known value during a registry outage rather than dropping to 0 -- see image_watch_observation_stale.",
-		}, []string{"image", "type"}),
+			Help: "Whether an update is currently known to be available (1) or not (0), per monitored image stream (repository, tag, platform) and event type. Retains its last-known value during a registry outage rather than dropping to 0 -- see image_watch_observation_stale.",
+		}, []string{"image", "tag", "platform", "type"}),
 		ObservationStale: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "image_watch_observation_stale",
-			Help: "Whether the most recent check for this image failed (1) or succeeded (0).",
-		}, []string{"image"}),
+			Help: "Whether the most recent check for this image stream (repository, tag, platform) failed (1) or succeeded (0).",
+		}, []string{"image", "tag", "platform"}),
 
 		NotificationsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "image_watch_notifications_total",
@@ -171,19 +174,20 @@ func (m *Metrics) SetImages(n int) {
 	m.Images.Set(float64(n))
 }
 
-// UpdateAvailability records which tracked event types were present.
-func (m *Metrics) UpdateAvailability(image string, fresh bool, present map[event.Type]bool) {
+// UpdateAvailability records which tracked event types were present for one
+// monitored image stream (repository, tag, platform).
+func (m *Metrics) UpdateAvailability(image, tag, platform string, fresh bool, present map[event.Type]bool) {
 	if !fresh {
-		m.ObservationStale.WithLabelValues(image).Set(1)
+		m.ObservationStale.WithLabelValues(image, tag, platform).Set(1)
 		return
 	}
-	m.ObservationStale.WithLabelValues(image).Set(0)
+	m.ObservationStale.WithLabelValues(image, tag, platform).Set(0)
 	for _, t := range trackedEventTypes {
 		v := 0.0
 		if present[t] {
 			v = 1
 		}
-		m.UpdatesAvailable.WithLabelValues(image, string(t)).Set(v)
+		m.UpdatesAvailable.WithLabelValues(image, tag, platform, string(t)).Set(v)
 	}
 }
 

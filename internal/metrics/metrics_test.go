@@ -165,27 +165,27 @@ func TestSetContainersAndImages(t *testing.T) {
 
 func TestUpdateAvailability_FreshCheckSetsExactState(t *testing.T) {
 	m := New()
-	m.UpdateAvailability("docker.io/library/foo", true, map[event.Type]bool{
+	m.UpdateAvailability("docker.io/library/foo", "1.4", "linux/amd64", true, map[event.Type]bool{
 		event.PatchAvailable: true,
 	})
 
 	body := scrape(t, m)
 
 	patchVal, ok := labeledValue(t, body, "image_watch_updates_available", map[string]string{
-		"image": "docker.io/library/foo", "type": string(event.PatchAvailable),
+		"image": "docker.io/library/foo", "tag": "1.4", "platform": "linux/amd64", "type": string(event.PatchAvailable),
 	})
 	if !ok || patchVal != 1 {
 		t.Errorf("expected updates_available for PATCH_AVAILABLE = 1, got ok=%v val=%v", ok, patchVal)
 	}
 
 	minorVal, ok := labeledValue(t, body, "image_watch_updates_available", map[string]string{
-		"image": "docker.io/library/foo", "type": string(event.MinorAvailable),
+		"image": "docker.io/library/foo", "tag": "1.4", "platform": "linux/amd64", "type": string(event.MinorAvailable),
 	})
 	if !ok || minorVal != 0 {
 		t.Errorf("expected updates_available for MINOR_AVAILABLE (not present this cycle) = 0, got ok=%v val=%v", ok, minorVal)
 	}
 
-	staleVal, ok := labeledValue(t, body, "image_watch_observation_stale", map[string]string{"image": "docker.io/library/foo"})
+	staleVal, ok := labeledValue(t, body, "image_watch_observation_stale", map[string]string{"image": "docker.io/library/foo", "tag": "1.4", "platform": "linux/amd64"})
 	if !ok || staleVal != 0 {
 		t.Errorf("expected observation_stale = 0 for a fresh successful check, got ok=%v val=%v", ok, staleVal)
 	}
@@ -195,20 +195,19 @@ func TestUpdateAvailability_StaleCheckRetainsLastKnownValue(t *testing.T) {
 	m := New()
 	image := "docker.io/library/foo"
 
-	m.UpdateAvailability(image, true, map[event.Type]bool{event.PatchAvailable: true})
-
-	m.UpdateAvailability(image, false, nil)
+	m.UpdateAvailability(image, "1.4", "linux/amd64", true, map[event.Type]bool{event.PatchAvailable: true})
+	m.UpdateAvailability(image, "1.4", "linux/amd64", false, nil)
 
 	body := scrape(t, m)
 
 	patchVal, ok := labeledValue(t, body, "image_watch_updates_available", map[string]string{
-		"image": image, "type": string(event.PatchAvailable),
+		"image": image, "tag": "1.4", "platform": "linux/amd64", "type": string(event.PatchAvailable),
 	})
 	if !ok || patchVal != 1 {
 		t.Errorf("expected updates_available for PATCH_AVAILABLE to remain 1 after a failed check, got ok=%v val=%v", ok, patchVal)
 	}
 
-	staleVal, ok := labeledValue(t, body, "image_watch_observation_stale", map[string]string{"image": image})
+	staleVal, ok := labeledValue(t, body, "image_watch_observation_stale", map[string]string{"image": image, "tag": "1.4", "platform": "linux/amd64"})
 	if !ok || staleVal != 1 {
 		t.Errorf("expected observation_stale = 1 after a failed check, got ok=%v val=%v", ok, staleVal)
 	}
@@ -218,12 +217,12 @@ func TestUpdateAvailability_FreshCheckClearsResolvedUpdate(t *testing.T) {
 	m := New()
 	image := "docker.io/library/foo"
 
-	m.UpdateAvailability(image, true, map[event.Type]bool{event.PatchAvailable: true})
-	m.UpdateAvailability(image, true, map[event.Type]bool{}) // resolved; nothing present now
+	m.UpdateAvailability(image, "1.4", "linux/amd64", true, map[event.Type]bool{event.PatchAvailable: true})
+	m.UpdateAvailability(image, "1.4", "linux/amd64", true, map[event.Type]bool{}) // resolved; nothing present now
 
 	body := scrape(t, m)
 	patchVal, ok := labeledValue(t, body, "image_watch_updates_available", map[string]string{
-		"image": image, "type": string(event.PatchAvailable),
+		"image": image, "tag": "1.4", "platform": "linux/amd64", "type": string(event.PatchAvailable),
 	})
 	if !ok || patchVal != 0 {
 		t.Errorf("expected a resolved update to drop to 0 on a successful check, got ok=%v val=%v", ok, patchVal)
@@ -301,16 +300,64 @@ func TestHandler_ContentType(t *testing.T) {
 	}
 }
 
-func TestNoVersionOrTagLabelsAnywhere(t *testing.T) {
+func TestUpdateAvailability_DistinctStreamsDoNotClobber(t *testing.T) {
 	m := New()
-	m.RecordRegistryRequest("ghcr.io", time.Second, nil)
-	m.UpdateAvailability("docker.io/library/foo", true, map[event.Type]bool{event.PatchAvailable: true})
+	// Two tag streams of the same repository: the exact postgres:15 +
+	// postgres:15-alpine shape that used to clobber (last writer wins).
+	m.UpdateAvailability("docker.io/library/pg", "15", "linux/arm64", true, map[event.Type]bool{
+		event.MajorAvailable: true,
+	})
+	m.UpdateAvailability("docker.io/library/pg", "15-alpine", "linux/arm64", true, map[event.Type]bool{
+		event.ApplicationMajorAvailable: true,
+	})
 
 	body := scrape(t, m)
-	suspicious := []string{"1.2.3", "sha256:", "v1.2.3"}
-	for _, s := range suspicious {
+
+	majorVal, ok := labeledValue(t, body, "image_watch_updates_available", map[string]string{
+		"image": "docker.io/library/pg", "tag": "15", "platform": "linux/arm64", "type": string(event.MajorAvailable),
+	})
+	if !ok || majorVal != 1 {
+		t.Errorf("tag 15 MAJOR_AVAILABLE = %v (ok=%v), want 1", majorVal, ok)
+	}
+
+	appMajorVal, ok := labeledValue(t, body, "image_watch_updates_available", map[string]string{
+		"image": "docker.io/library/pg", "tag": "15-alpine", "platform": "linux/arm64", "type": string(event.ApplicationMajorAvailable),
+	})
+	if !ok || appMajorVal != 1 {
+		t.Errorf("tag 15-alpine APPLICATION_MAJOR_AVAILABLE = %v (ok=%v), want 1 -- must not be clobbered by the plain stream", appMajorVal, ok)
+	}
+
+	// The two streams must not leak into each other's series.
+	if val, ok := labeledValue(t, body, "image_watch_updates_available", map[string]string{
+		"image": "docker.io/library/pg", "tag": "15-alpine", "platform": "linux/arm64", "type": string(event.MajorAvailable),
+	}); ok && val == 1 {
+		t.Errorf("tag 15-alpine must not report plain MAJOR_AVAILABLE (application-only stream)")
+	}
+	if val, ok := labeledValue(t, body, "image_watch_updates_available", map[string]string{
+		"image": "docker.io/library/pg", "tag": "15", "platform": "linux/arm64", "type": string(event.ApplicationMajorAvailable),
+	}); ok && val == 1 {
+		t.Errorf("tag 15 must not report APPLICATION_MAJOR_AVAILABLE (plain-only stream)")
+	}
+}
+
+func TestNoCandidateOrDigestValuesInLabels(t *testing.T) {
+	m := New()
+	m.RecordRegistryRequest("ghcr.io", time.Second, nil)
+	m.UpdateAvailability("docker.io/library/foo", "15-alpine", "linux/arm64", true, map[event.Type]bool{
+		event.ApplicationMajorAvailable: true,
+	})
+
+	body := scrape(t, m)
+
+	// The running tag is a bounded label (it mirrors observer.groupKey, so it
+	// is limited to tags actually being monitored) and is expected in output.
+	if !strings.Contains(body, `tag="15-alpine"`) {
+		t.Errorf("expected the running tag to appear as a bounded label:\n%s", body)
+	}
+	// Digest and candidate values are unbounded and must never appear as labels.
+	for _, s := range []string{"sha256:", "18.6-alpine", "v18.6", "2.0.0"} {
 		if strings.Contains(body, s) {
-			t.Errorf("scraped output unexpectedly contains %q -- metrics must never carry version/digest values as labels:\n%s", s, body)
+			t.Errorf("scraped output unexpectedly contains %q -- digest/candidate values must never be labels:\n%s", s, body)
 		}
 	}
 }

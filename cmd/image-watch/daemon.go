@@ -83,7 +83,7 @@ func (d *Daemon) runCycle(ctx context.Context) {
 				}
 			}
 			fresh := r.Err == nil && !r.Partial
-			d.Metrics.UpdateAvailability(imageName, fresh, present)
+			d.Metrics.UpdateAvailability(imageName, r.Image.TagOrEmpty(), r.Platform.String(), fresh, present)
 		}
 	}
 	if d.Metrics != nil {
