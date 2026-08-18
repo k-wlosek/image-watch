@@ -8,13 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/example/image-watch/internal/event"
-	"github.com/example/image-watch/internal/observer"
-	"github.com/example/image-watch/internal/registry"
-	"github.com/example/image-watch/internal/registry/distribution"
-	docker "github.com/example/image-watch/internal/runtime/docker"
-	"github.com/example/image-watch/internal/state"
-	"github.com/example/image-watch/internal/version"
+	"github.com/k-wlosek/image-watch/internal/event"
+	"github.com/k-wlosek/image-watch/internal/observer"
+	"github.com/k-wlosek/image-watch/internal/registry"
+	"github.com/k-wlosek/image-watch/internal/registry/distribution"
+	docker "github.com/k-wlosek/image-watch/internal/runtime/docker"
+	"github.com/k-wlosek/image-watch/internal/state"
+	"github.com/k-wlosek/image-watch/internal/version"
 )
 
 // Live suite against a real Docker daemon. The fixture containers are

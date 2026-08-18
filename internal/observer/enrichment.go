@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/image-watch/internal/registry"
-	"github.com/example/image-watch/internal/version"
+	"github.com/k-wlosek/image-watch/internal/registry"
+	"github.com/k-wlosek/image-watch/internal/version"
 )
 
 // EnrichmentObserver records enrichment telemetry.

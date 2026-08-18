@@ -6,7 +6,7 @@ package event
 import (
 	"time"
 
-	"github.com/example/image-watch/internal/image"
+	"github.com/k-wlosek/image-watch/internal/image"
 )
 
 // Type identifies an update event category.

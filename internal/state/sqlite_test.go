@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/image-watch/internal/image"
+	"github.com/k-wlosek/image-watch/internal/image"
 )
 
 func TestSQLiteStore_PutAndGet(t *testing.T) {

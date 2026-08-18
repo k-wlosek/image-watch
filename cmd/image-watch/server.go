@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/example/image-watch/internal/metrics"
+	"github.com/k-wlosek/image-watch/internal/metrics"
 )
 
 // newHTTPServer builds the operational HTTP server.

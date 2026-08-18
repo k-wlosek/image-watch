@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/image-watch/internal/image"
+	"github.com/k-wlosek/image-watch/internal/image"
 )
 
 // newTLSTestClient points a Client at an httptest TLS server.

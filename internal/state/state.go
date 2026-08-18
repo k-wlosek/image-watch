@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/image-watch/internal/image"
+	"github.com/k-wlosek/image-watch/internal/image"
 )
 
 // Key identifies the unit of persisted observation state.

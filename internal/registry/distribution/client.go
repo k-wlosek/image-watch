@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/image-watch/internal/image"
-	"github.com/example/image-watch/internal/registry"
+	"github.com/k-wlosek/image-watch/internal/image"
+	"github.com/k-wlosek/image-watch/internal/registry"
 )
 
 // maxTagListPages bounds pagination for tag listing.

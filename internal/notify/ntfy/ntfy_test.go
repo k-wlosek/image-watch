@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/example/image-watch/internal/event"
-	"github.com/example/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/event"
+	"github.com/k-wlosek/image-watch/internal/notify"
 )
 
 func TestNotify_SendsToConfiguredTopic(t *testing.T) {

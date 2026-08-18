@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/image-watch/internal/event"
+	"github.com/k-wlosek/image-watch/internal/event"
 )
 
 // scrape renders the current metrics exactly as an HTTP scrape would.

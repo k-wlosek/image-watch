@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	iwruntime "github.com/example/image-watch/internal/runtime"
+	iwruntime "github.com/k-wlosek/image-watch/internal/runtime"
 )
 
 func newTestClient(t *testing.T, mux *http.ServeMux) *Client {

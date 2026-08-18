@@ -8,7 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/example/image-watch/internal/event"
+	"github.com/k-wlosek/image-watch/internal/event"
 )
 
 // trackedEventTypes is the fixed set of event types tracked per image.

@@ -5,7 +5,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/example/image-watch/internal/event"
+	"github.com/k-wlosek/image-watch/internal/event"
 )
 
 // Item is one event prepared for delivery.

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/image-watch/internal/image"
+	"github.com/k-wlosek/image-watch/internal/image"
 )
 
 func baseEvent() Event {

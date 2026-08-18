@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/image-watch/internal/image"
-	"github.com/example/image-watch/internal/registry"
-	iwruntime "github.com/example/image-watch/internal/runtime"
+	"github.com/k-wlosek/image-watch/internal/image"
+	"github.com/k-wlosek/image-watch/internal/registry"
+	iwruntime "github.com/k-wlosek/image-watch/internal/runtime"
 )
 
 // fakeRuntime is a test double for runtime.Runtime.

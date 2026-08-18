@@ -4,7 +4,7 @@ package registry
 import (
 	"context"
 
-	"github.com/example/image-watch/internal/image"
+	"github.com/k-wlosek/image-watch/internal/image"
 )
 
 // Registry queries an OCI or Docker-compatible registry.

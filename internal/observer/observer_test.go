@@ -7,12 +7,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/image-watch/internal/event"
-	"github.com/example/image-watch/internal/image"
-	"github.com/example/image-watch/internal/policy"
-	"github.com/example/image-watch/internal/registry"
-	iwruntime "github.com/example/image-watch/internal/runtime"
-	"github.com/example/image-watch/internal/state"
+	"github.com/k-wlosek/image-watch/internal/event"
+	"github.com/k-wlosek/image-watch/internal/image"
+	"github.com/k-wlosek/image-watch/internal/policy"
+	"github.com/k-wlosek/image-watch/internal/registry"
+	iwruntime "github.com/k-wlosek/image-watch/internal/runtime"
+	"github.com/k-wlosek/image-watch/internal/state"
 )
 
 func container(name, imageRef, imageID string, platform image.Platform) iwruntime.ContainerObservation {

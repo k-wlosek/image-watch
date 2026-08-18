@@ -6,7 +6,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/example/image-watch/internal/image"
+	"github.com/k-wlosek/image-watch/internal/image"
 )
 
 // Live suite: validates the OCI Distribution client against the real Docker

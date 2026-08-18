@@ -5,7 +5,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/example/image-watch/internal/image"
+	"github.com/k-wlosek/image-watch/internal/image"
 )
 
 // Runtime discovers running containers and reports the images they use.

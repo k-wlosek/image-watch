@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/example/image-watch/internal/event"
-	"github.com/example/image-watch/internal/notify"
-	"github.com/example/image-watch/internal/observer"
-	"github.com/example/image-watch/internal/state"
+	"github.com/k-wlosek/image-watch/internal/event"
+	"github.com/k-wlosek/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/observer"
+	"github.com/k-wlosek/image-watch/internal/state"
 )
 
 // BuildNotification turns detection results into a deliverable notification.

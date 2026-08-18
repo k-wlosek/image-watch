@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	iwimage "github.com/example/image-watch/internal/image"
-	"github.com/example/image-watch/internal/runtime"
+	iwimage "github.com/k-wlosek/image-watch/internal/image"
+	"github.com/k-wlosek/image-watch/internal/runtime"
 )
 
 // DefaultSocket is the standard Docker Engine socket path.

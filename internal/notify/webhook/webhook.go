@@ -10,7 +10,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/example/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/notify"
 )
 
 // Config configures the webhook notifier.

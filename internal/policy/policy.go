@@ -4,7 +4,7 @@ package policy
 import (
 	"strings"
 
-	"github.com/example/image-watch/internal/event"
+	"github.com/k-wlosek/image-watch/internal/event"
 )
 
 // Policy controls which detected event categories are eligible for notification.

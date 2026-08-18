@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/example/image-watch/internal/event"
-	"github.com/example/image-watch/internal/image"
-	iwruntime "github.com/example/image-watch/internal/runtime"
+	"github.com/k-wlosek/image-watch/internal/event"
+	"github.com/k-wlosek/image-watch/internal/image"
+	iwruntime "github.com/k-wlosek/image-watch/internal/runtime"
 )
 
 func concurrencyPlat() image.Platform {

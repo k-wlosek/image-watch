@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/example/image-watch/internal/notify"
-	"github.com/example/image-watch/internal/notify/stdout"
+	"github.com/k-wlosek/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/notify/stdout"
 )
 
 // defaultServerURL is ntfy's public hosted instance.

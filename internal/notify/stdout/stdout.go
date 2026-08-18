@@ -7,8 +7,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/example/image-watch/internal/event"
-	"github.com/example/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/event"
+	"github.com/k-wlosek/image-watch/internal/notify"
 )
 
 // Notifier writes notifications to Writer (defaults to os.Stdout).

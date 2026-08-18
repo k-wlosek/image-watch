@@ -13,10 +13,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/example/image-watch/internal/config"
-	"github.com/example/image-watch/internal/event"
-	"github.com/example/image-watch/internal/metrics"
-	"github.com/example/image-watch/internal/observer"
+	"github.com/k-wlosek/image-watch/internal/config"
+	"github.com/k-wlosek/image-watch/internal/event"
+	"github.com/k-wlosek/image-watch/internal/metrics"
+	"github.com/k-wlosek/image-watch/internal/observer"
 )
 
 var version = "dev"

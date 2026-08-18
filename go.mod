@@ -1,4 +1,4 @@
-module github.com/example/image-watch
+module github.com/k-wlosek/image-watch
 
 go 1.25.6
 

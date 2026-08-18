@@ -6,7 +6,7 @@ package config
 import (
 	"time"
 
-	"github.com/example/image-watch/internal/policy"
+	"github.com/k-wlosek/image-watch/internal/policy"
 )
 
 // Config is the resolved daemon configuration.
