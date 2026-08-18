@@ -34,7 +34,7 @@ func (n *Notifier) Notify(_ context.Context, note notify.Notification) error {
 		return nil
 	}
 
-	fmt.Fprintf(w, "Image Watch — %d update(s)\n\n", len(note.Items))
+	fmt.Fprintf(w, "Image Watch - %d update(s)\n\n", len(note.Items))
 	for _, item := range note.Items {
 		fmt.Fprintln(w, categoryLabel(item.Type))
 		switch item.Type {

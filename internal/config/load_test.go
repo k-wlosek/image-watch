@@ -187,6 +187,51 @@ notifications:
 	}
 }
 
+func TestLoad_EnrichmentParsed(t *testing.T) {
+	path := writeConfig(t, `
+enrichment:
+  max_tags: 250
+  timeout: 45s
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Enrichment.MaxTags != 250 {
+		t.Errorf("Enrichment.MaxTags = %d, want 250", cfg.Enrichment.MaxTags)
+	}
+	if cfg.Enrichment.Timeout != 45*time.Second {
+		t.Errorf("Enrichment.Timeout = %s, want 45s", cfg.Enrichment.Timeout)
+	}
+}
+
+func TestLoad_EnrichmentDefaults(t *testing.T) {
+	path := writeConfig(t, `check_interval: 30m`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	def := DefaultEnrichmentConfig()
+	if cfg.Enrichment != def {
+		t.Errorf("expected enrichment defaults when unmentioned, got %+v, want %+v", cfg.Enrichment, def)
+	}
+}
+
+func TestLoad_InvalidEnrichmentErrors(t *testing.T) {
+	for name, content := range map[string]string{
+		"bad timeout":   "enrichment:\n  timeout: not-a-duration",
+		"zero timeout":  "enrichment:\n  timeout: 0s",
+		"negative tags": "enrichment:\n  max_tags: -1",
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(writeConfig(t, content))
+			if err == nil {
+				t.Fatal("expected an error for invalid enrichment config")
+			}
+		})
+	}
+}
+
 func TestApplyEnvOverrides_Precedence(t *testing.T) {
 	path := writeConfig(t, `check_interval: 30m`)
 

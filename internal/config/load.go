@@ -116,6 +116,11 @@ type rawConfig struct {
 		Path string `yaml:"path"`
 	} `yaml:"state"`
 
+	Enrichment *struct {
+		MaxTags *int   `yaml:"max_tags"`
+		Timeout string `yaml:"timeout"`
+	} `yaml:"enrichment"`
+
 	Registries map[string]struct {
 		UsernameEnv string `yaml:"username_env"`
 		PasswordEnv string `yaml:"password_env"`
@@ -197,6 +202,19 @@ func mergeRaw(cfg Config, raw rawConfig) (Config, error) {
 		cfg.State.Path = raw.State.Path
 	}
 
+	if raw.Enrichment != nil {
+		if raw.Enrichment.MaxTags != nil {
+			cfg.Enrichment.MaxTags = *raw.Enrichment.MaxTags
+		}
+		if raw.Enrichment.Timeout != "" {
+			d, err := time.ParseDuration(raw.Enrichment.Timeout)
+			if err != nil {
+				return Config{}, fmt.Errorf("enrichment.timeout: %w", err)
+			}
+			cfg.Enrichment.Timeout = d
+		}
+	}
+
 	if raw.Registries != nil {
 		if cfg.Registries == nil {
 			cfg.Registries = make(map[string]RegistryAuthConfig)
@@ -266,6 +284,12 @@ func validate(cfg Config) error {
 		if auth.Scheme != "" && auth.Scheme != "http" && auth.Scheme != "https" {
 			return fmt.Errorf("registries.%s.scheme must be \"http\" or \"https\", got %q", host, auth.Scheme)
 		}
+	}
+	if cfg.Enrichment.MaxTags < 0 {
+		return fmt.Errorf("enrichment.max_tags must be >= 0, got %d", cfg.Enrichment.MaxTags)
+	}
+	if cfg.Enrichment.Timeout <= 0 {
+		return fmt.Errorf("enrichment.timeout must be positive, got %s", cfg.Enrichment.Timeout)
 	}
 	return nil
 }

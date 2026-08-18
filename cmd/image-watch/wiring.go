@@ -66,10 +66,12 @@ func buildObserver(cfg config.Config, m *metrics.Metrics) (*observer.Observer, e
 	}
 
 	obs := &observer.Observer{
-		Runtime:       dockerClient,
-		Registries:    resolver,
-		Store:         store,
-		DefaultPolicy: cfg.Policy,
+		Runtime:           dockerClient,
+		Registries:        resolver,
+		Store:             store,
+		DefaultPolicy:     cfg.Policy,
+		EnrichmentMaxTags: cfg.Enrichment.MaxTags,
+		EnrichmentTimeout: cfg.Enrichment.Timeout,
 	}
 	if m != nil {
 		obs.Metrics = enrichmentObserver{m}

@@ -17,6 +17,7 @@ type Config struct {
 	Notifications NotificationsConfig
 	Metrics       MetricsConfig
 	State         StateConfig
+	Enrichment    EnrichmentConfig
 	Registries    map[string]RegistryAuthConfig
 }
 
@@ -76,6 +77,21 @@ type StateConfig struct {
 	Path string
 }
 
+// EnrichmentConfig bounds the best-effort enrichment of opaque tags
+// (e.g. identifying which release tag `latest` serves).
+type EnrichmentConfig struct {
+	MaxTags int
+	Timeout time.Duration
+}
+
+// DefaultEnrichmentConfig returns the default enrichment limits.
+func DefaultEnrichmentConfig() EnrichmentConfig {
+	return EnrichmentConfig{
+		MaxTags: 100,
+		Timeout: 30 * time.Second,
+	}
+}
+
 // RegistryAuthConfig configures credentials and TLS trust for one registry host.
 type RegistryAuthConfig struct {
 	UsernameEnv string
@@ -112,6 +128,7 @@ func Default() Config {
 		State: StateConfig{
 			Path: "/var/lib/image-watch/state.db",
 		},
+		Enrichment: DefaultEnrichmentConfig(),
 		Registries: map[string]RegistryAuthConfig{},
 	}
 }
