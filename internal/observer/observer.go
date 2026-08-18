@@ -135,7 +135,6 @@ func (o *Observer) Check(ctx context.Context) ([]Result, error) {
 	g := new(errgroup.Group)
 	g.SetLimit(o.workers(len(keys)))
 	for i, key := range keys {
-		i, key := i, key
 		members := groups[key]
 		g.Go(func() error {
 			results[i] = o.checkGroup(ctx, key, members)
@@ -173,10 +172,7 @@ func (o *Observer) workerLimit() int {
 
 // workers bounds the pool size by both the configured limit and n.
 func (o *Observer) workers(n int) int {
-	w := o.workerLimit()
-	if w > n {
-		w = n
-	}
+	w := min(o.workerLimit(), n)
 	return w
 }
 
@@ -367,17 +363,14 @@ func (o *Observer) detectDigestDriftEvents(ctx context.Context, reg registry.Reg
 		var wg sync.WaitGroup
 		sem := make(chan struct{}, o.workerLimit())
 		for i := range distinct {
-			i := i
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
+			wg.Go(func() {
 				sem <- struct{}{}
 				defer func() { <-sem }()
 				if t, ok := o.attemptEnrichment(ctx, reg, key, platformDigest, cache); ok {
 					inferred[i] = t
 					enriched[i] = true
 				}
-			}()
+			})
 		}
 		wg.Wait()
 	} else if tv.IsOpaque() {
@@ -466,14 +459,11 @@ func (o *Observer) detectVersionCandidateEvents(ctx context.Context, reg registr
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, o.workerLimit())
 	for i, tag := range distinct {
-		i, tag := i, tag
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			opts[i], errs[i] = reg.ResolveForPlatform(ctx, key.Repository, tag, key.Platform)
-		}()
+		})
 	}
 	wg.Wait()
 

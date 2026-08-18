@@ -1,6 +1,9 @@
 package version
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 // knownBaseFamilies is the list of recognized base-image prefixes.
 var knownBaseFamilies = []string{
@@ -17,14 +20,14 @@ var knownBaseFamilies = []string{
 var baseFamilyPattern = regexp.MustCompile(`^(` + joinAlternation(knownBaseFamilies) + `)(\d+(?:\.\d+)*)?$`)
 
 func joinAlternation(names []string) string {
-	out := ""
+	var out strings.Builder
 	for i, n := range names {
 		if i > 0 {
-			out += "|"
+			out.WriteString("|")
 		}
-		out += n
+		out.WriteString(n)
 	}
-	return out
+	return out.String()
 }
 
 // matchBaseFamily interprets s as a known base-family token.

@@ -50,21 +50,21 @@ func ParseReference(raw string) (Reference, error) {
 	// Split off digest, if present.
 	var digest *string
 	name := raw
-	if idx := strings.Index(raw, "@"); idx != -1 {
-		d := raw[idx+1:]
+	if before, after, ok := strings.Cut(raw, "@"); ok {
+		d := after
 		digest = &d
-		name = raw[:idx]
+		name = before
 	}
 
 	// Determine registry versus repository.
 	registry := DefaultRegistry
 	repoAndTag := name
 
-	if idx := strings.Index(name, "/"); idx != -1 {
-		firstComponent := name[:idx]
+	if before, after, ok := strings.Cut(name, "/"); ok {
+		firstComponent := before
 		if strings.ContainsAny(firstComponent, ".:") || firstComponent == "localhost" {
 			registry = firstComponent
-			repoAndTag = name[idx+1:]
+			repoAndTag = after
 		}
 	}
 

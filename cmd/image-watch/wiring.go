@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -197,9 +198,11 @@ func enabledCategories(p policy.Policy) string {
 	if len(parts) == 0 {
 		return "(none)"
 	}
-	out := parts[0]
+	var out strings.Builder
+	out.WriteString(parts[0])
 	for _, p := range parts[1:] {
-		out += ", " + p
+		out.WriteString(", ")
+		out.WriteString(p)
 	}
-	return out
+	return out.String()
 }

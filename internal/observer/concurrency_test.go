@@ -21,7 +21,7 @@ func opaqueCluster(n int) (*fakeRuntime, *fakeRegistry) {
 	plat := concurrencyPlat()
 	var containers []iwruntime.ContainerObservation
 	reg := newFakeRegistry()
-	for i := 0; i < n; i++ {
+	for i := range n {
 		repo := "acme/app" + string(rune('a'+i))
 		digest := "sha256:" + string(rune('a'+i)) + "000"
 		reg.setDigest(repo, "latest", digest)

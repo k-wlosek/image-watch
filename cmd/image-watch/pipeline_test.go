@@ -335,7 +335,7 @@ func TestRegistryOutageTracker_PartialImageFailureDoesNotCountAsOutage(t *testin
 	tracker := NewRegistryOutageTracker()
 	mixed := []observer.Result{failedResult("ghcr.io", "acme/foo"), succeededResult("ghcr.io", "acme/bar")}
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if alerts := tracker.DetectOutages(mixed, 2); len(alerts) != 0 {
 			t.Fatalf("cycle %d: expected no outage alert for a partial failure, got %v", i, alerts)
 		}

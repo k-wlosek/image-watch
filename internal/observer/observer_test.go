@@ -412,7 +412,7 @@ func TestScenario4_VersionTagMutation(t *testing.T) {
 func TestScenario7_Deduplication(t *testing.T) {
 	plat := image.Platform{OS: "linux", Architecture: "amd64"}
 	var containers []iwruntime.ContainerObservation
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		containers = append(containers, container(
 			fmt.Sprintf("foo%d", i), "ghcr.io/acme/foo:1.2.3", "sha256:current", plat,
 		))

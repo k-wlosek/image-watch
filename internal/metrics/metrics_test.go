@@ -69,7 +69,7 @@ func labeledValue(t *testing.T, body, name string, want map[string]string) (valu
 
 func labelsMatch(raw string, want map[string]string) bool {
 	got := make(map[string]string)
-	for _, part := range strings.Split(raw, ",") {
+	for part := range strings.SplitSeq(raw, ",") {
 		kv := strings.SplitN(part, "=", 2)
 		if len(kv) != 2 {
 			continue

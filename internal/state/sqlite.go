@@ -130,7 +130,7 @@ func (s *SQLiteStore) GetObservation(ctx context.Context, key Key) (Observation,
 }
 
 func (s *SQLiteStore) PutObservation(ctx context.Context, obs Observation) error {
-	var lastSuccess, lastErrorAt interface{}
+	var lastSuccess, lastErrorAt any
 	if !obs.LastSuccess.IsZero() {
 		lastSuccess = obs.LastSuccess
 	}
