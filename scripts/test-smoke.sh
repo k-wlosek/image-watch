@@ -32,9 +32,7 @@ metrics:
 EOF
 printf '%s\n' "$TESTCONF" >/tmp/iw-test-config.yaml
 
-# Using a scratch image, so we can't use a username; pass in numeric UID instead.
-# --user 0:0 may be required on non-Linux hosts instead of 65532 UID + group_add
-docker run -d --name "$NAME" --user 0:0 \
+docker run -d --name "$NAME" \
 	-v /var/run/docker.sock:/var/run/docker.sock:ro \
 	-v "$VSTATE":/var/lib/image-watch \
 	-v /tmp/iw-test-config.yaml:/etc/image-watch/config.yaml:ro \

@@ -1,16 +1,9 @@
 # Example deployment.
-# Export DOCKER_SOCK_GID before starting the stack.
-#   export DOCKER_SOCK_GID="$(stat -c '%g' /var/run/docker.sock)"
-#   docker compose up -d
 
 services:
   image-watch:
     image: ghcr.io/example/image-watch:latest
     restart: unless-stopped
-
-    user: "65532:65532"
-    group_add:
-      - "${DOCKER_SOCK_GID:?set DOCKER_SOCK_GID to the host docker.sock GID, e.g. via: export DOCKER_SOCK_GID=$(stat -c '%g' /var/run/docker.sock)}"
 
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
