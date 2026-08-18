@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/example/image-watch/internal/config"
@@ -74,6 +75,8 @@ func (d *Daemon) runCycle(ctx context.Context) {
 		}
 		totalContainers += len(r.ContainerNames)
 
+		drift := computeDigestDrift(r)
+
 		if d.Metrics != nil {
 			imageName := r.Image.Registry + "/" + r.Image.Repository
 			present := make(map[event.Type]bool, len(r.Events))
@@ -84,6 +87,15 @@ func (d *Daemon) runCycle(ctx context.Context) {
 			}
 			fresh := r.Err == nil && !r.Partial
 			d.Metrics.UpdateAvailability(imageName, r.Image.TagOrEmpty(), r.Platform.String(), fresh, present)
+			if fresh {
+				d.Metrics.SetDigestDrift(imageName, r.Image.TagOrEmpty(), r.Platform.String(), drift != nil)
+			}
+		}
+
+		if drift != nil {
+			for _, item := range drift.items {
+				d.logf("drift: %s:%s (%s) container %s running, registry serves %s", drift.image, drift.tag, drift.platform, item, drift.served)
+			}
 		}
 	}
 	if d.Metrics != nil {
@@ -129,4 +141,55 @@ func countEvents(results []observer.Result) int {
 		n += len(r.Events)
 	}
 	return n
+}
+
+// digestDrift describes the running containers whose digest differs from
+// what the registry currently serves for their tag.
+type digestDrift struct {
+	image    string
+	tag      string
+	platform string
+	served   string
+	items    []string // "name=sha256:ab12cd34ef56"
+}
+
+// computeDigestDrift reports the containers running a different digest than
+// the registry serves for their tag, or nil when there is none. Containers
+// whose running digest is unknown don't count as drift.
+func computeDigestDrift(r observer.Result) *digestDrift {
+	if r.ServedDigest == "" {
+		return nil
+	}
+	d := &digestDrift{
+		image:    r.Image.Registry + "/" + r.Image.Repository,
+		tag:      r.Image.TagOrEmpty(),
+		platform: r.Platform.String(),
+		served:   shortDigest(r.ServedDigest),
+	}
+	for i, name := range r.ContainerNames {
+		dig := ""
+		if i < len(r.ContainerDigests) {
+			dig = r.ContainerDigests[i]
+		}
+		if dig == "" || dig == r.ServedDigest {
+			continue
+		}
+		d.items = append(d.items, fmt.Sprintf("%s=%s", name, shortDigest(dig)))
+	}
+	if len(d.items) == 0 {
+		return nil
+	}
+	return d
+}
+
+// shortDigest abbreviates a content digest for log output.
+func shortDigest(s string) string {
+	const prefix = "sha256:"
+	if strings.HasPrefix(s, prefix) && len(s) > len(prefix)+12 {
+		return s[:len(prefix)+12]
+	}
+	if len(s) > 12 {
+		return s[:12]
+	}
+	return s
 }

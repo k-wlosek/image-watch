@@ -42,8 +42,20 @@ type Result struct {
 	EffectivePolicy policy.Policy
 	Events          []event.Event
 	ContainerNames  []string
-	Stale           bool
-	Err             error
+
+	// ServedDigest is what the registry currently serves for the running
+	// tag: the index digest when the tag points to a multi-arch index,
+	// otherwise the platform manifest digest. Empty when the registry
+	// check failed.
+	ServedDigest string
+
+	// ContainerDigests holds the digest each member container is running,
+	// aligned with ContainerNames. Entries may be empty when the running
+	// digest is unknown (e.g. locally built images).
+	ContainerDigests []string
+
+	Stale bool
+	Err   error
 
 	// Partial is true when the current tag's own registry check
 	// succeeded (Err == nil) but one or more auxiliary lookups this
@@ -108,10 +120,11 @@ func (o *Observer) now() time.Time {
 
 func (o *Observer) checkGroup(ctx context.Context, key groupKey, members []iwruntime.ContainerObservation) Result {
 	result := Result{
-		Image:           image.Reference{Registry: key.Registry, Repository: key.Repository, Tag: &key.Tag},
-		Platform:        key.Platform,
-		EffectivePolicy: effectivePolicyFor(o.DefaultPolicy, members),
-		ContainerNames:  containerNames(members),
+		Image:            image.Reference{Registry: key.Registry, Repository: key.Repository, Tag: &key.Tag},
+		Platform:         key.Platform,
+		EffectivePolicy:  effectivePolicyFor(o.DefaultPolicy, members),
+		ContainerNames:   containerNames(members),
+		ContainerDigests: containerDigests(members),
 	}
 
 	reg := o.Registries(key.Registry)
@@ -133,6 +146,14 @@ func (o *Observer) checkGroup(ctx context.Context, key groupKey, members []iwrun
 		result.Stale = true
 		o.markStale(ctx, key, err)
 		return result
+	}
+
+	// The served digest is index-level when the tag resolves to a
+	// multi-arch index; the Docker adapter's RepoDigests are also
+	// index-level, so this is the apples-to-apples comparison target.
+	result.ServedDigest = registryObs.IndexDigest
+	if result.ServedDigest == "" {
+		result.ServedDigest = registryObs.PlatformManifestDigest
 	}
 
 	newObs := state.Observation{
@@ -303,6 +324,16 @@ func containerNames(members []iwruntime.ContainerObservation) []string {
 		names = append(names, c.Name)
 	}
 	return names
+}
+
+// containerDigests returns each member's running digest, aligned with
+// containerNames.
+func containerDigests(members []iwruntime.ContainerObservation) []string {
+	digests := make([]string, 0, len(members))
+	for _, c := range members {
+		digests = append(digests, c.Digest)
+	}
+	return digests
 }
 
 // UnresolvedRegistryError indicates no Registry client was configured.

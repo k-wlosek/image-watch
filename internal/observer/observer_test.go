@@ -51,6 +51,38 @@ func findEvent(events []event.Event, t event.Type) *event.Event {
 	return nil
 }
 
+func TestResultCarriesRunningAndServedDigests(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("web1", "ghcr.io/acme/foo:1.2.3", "sha256:local-running", plat),
+		container("web2", "ghcr.io/acme/foo:1.2.3", "sha256:local-running", plat),
+	}}
+	reg := newFakeRegistry()
+	reg.setDigest("acme/foo", "1.2.3", "sha256:registry-served")
+
+	o := newTestObserver(rt, reg)
+	results, err := o.Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check error: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("got %d results, want 1", len(results))
+	}
+	r := results[0]
+	if r.ServedDigest != "sha256:registry-served" {
+		t.Errorf("ServedDigest = %q, want sha256:registry-served", r.ServedDigest)
+	}
+	want := []string{"sha256:local-running", "sha256:local-running"}
+	if len(r.ContainerDigests) != len(want) {
+		t.Fatalf("ContainerDigests = %v, want %v", r.ContainerDigests, want)
+	}
+	for i := range want {
+		if r.ContainerDigests[i] != want[i] {
+			t.Errorf("ContainerDigests[%d] = %q, want %q", i, r.ContainerDigests[i], want[i])
+		}
+	}
+}
+
 func TestScenario1_StandardSemVer(t *testing.T) {
 	plat := image.Platform{OS: "linux", Architecture: "amd64"}
 	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{

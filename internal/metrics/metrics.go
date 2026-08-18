@@ -32,7 +32,7 @@ type Metrics struct {
 
 	ChecksTotal      prometheus.Counter
 	CheckErrorsTotal prometheus.Counter
-	CheckDuration    prometheus.Gauge // seconds; most recent cycle
+	CheckDuration    prometheus.Histogram // seconds per cycle
 
 	Containers prometheus.Gauge
 	Images     prometheus.Gauge
@@ -43,13 +43,14 @@ type Metrics struct {
 	// shared (image, type) key when a repository runs several tags.
 	UpdatesAvailable *prometheus.GaugeVec // labels: image, tag, platform, type
 	ObservationStale *prometheus.GaugeVec // labels: image, tag, platform
+	DigestDrift      *prometheus.GaugeVec // labels: image, tag, platform
 
 	NotificationsTotal      prometheus.Counter
 	NotificationErrorsTotal prometheus.Counter
 
-	RegistryRequestsTotal          *prometheus.CounterVec // labels: registry
-	RegistryErrorsTotal            *prometheus.CounterVec // labels: registry
-	RegistryRequestDurationSeconds *prometheus.GaugeVec   // labels: registry; most recent request
+	RegistryRequestsTotal          *prometheus.CounterVec   // labels: registry
+	RegistryErrorsTotal            *prometheus.CounterVec   // labels: registry
+	RegistryRequestDurationSeconds *prometheus.HistogramVec // labels: registry; seconds per request
 
 	// Enrichment counters.
 	EnrichmentAttemptsTotal prometheus.Counter
@@ -70,9 +71,10 @@ func New() *Metrics {
 			Name: "image_watch_check_errors_total",
 			Help: "Total number of check cycles that failed entirely (e.g. the container runtime was unavailable).",
 		}),
-		CheckDuration: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "image_watch_check_duration_seconds",
-			Help: "Duration of the most recent check cycle, in seconds.",
+		CheckDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Name:    "image_watch_check_duration_seconds",
+			Help:    "Duration of check cycles, in seconds.",
+			Buckets: prometheus.ExponentialBuckets(1, 2, 12), // 1s .. ~34min, cycles can run far past the default 10s cap
 		}),
 
 		Containers: prometheus.NewGauge(prometheus.GaugeOpts{
@@ -92,6 +94,10 @@ func New() *Metrics {
 			Name: "image_watch_observation_stale",
 			Help: "Whether the most recent check for this image stream (repository, tag, platform) failed (1) or succeeded (0).",
 		}, []string{"image", "tag", "platform"}),
+		DigestDrift: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "image_watch_digest_drift",
+			Help: "Whether any running container for this image stream (repository, tag, platform) is on a digest that differs from what the registry currently serves (1) or matches it (0). Retains its last-known value during a registry outage rather than dropping to 0 -- see image_watch_observation_stale.",
+		}, []string{"image", "tag", "platform"}),
 
 		NotificationsTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "image_watch_notifications_total",
@@ -110,9 +116,9 @@ func New() *Metrics {
 			Name: "image_watch_registry_errors_total",
 			Help: "Total number of failed requests to each registry host.",
 		}, []string{"registry"}),
-		RegistryRequestDurationSeconds: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		RegistryRequestDurationSeconds: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Name: "image_watch_registry_request_duration_seconds",
-			Help: "Duration of the most recent request to each registry host, in seconds.",
+			Help: "Duration of requests to each registry host, in seconds.",
 		}, []string{"registry"}),
 
 		EnrichmentAttemptsTotal: prometheus.NewCounter(prometheus.CounterOpts{
@@ -137,6 +143,7 @@ func New() *Metrics {
 		m.Images,
 		m.UpdatesAvailable,
 		m.ObservationStale,
+		m.DigestDrift,
 		m.NotificationsTotal,
 		m.NotificationErrorsTotal,
 		m.RegistryRequestsTotal,
@@ -161,7 +168,7 @@ func (m *Metrics) RecordCheck(duration time.Duration, err error) {
 	if err != nil {
 		m.CheckErrorsTotal.Inc()
 	}
-	m.CheckDuration.Set(duration.Seconds())
+	m.CheckDuration.Observe(duration.Seconds())
 }
 
 // SetContainers sets the containers gauge.
@@ -191,6 +198,16 @@ func (m *Metrics) UpdateAvailability(image, tag, platform string, fresh bool, pr
 	}
 }
 
+// SetDigestDrift records whether any running container for one image
+// stream is on a digest that differs from what the registry serves.
+func (m *Metrics) SetDigestDrift(image, tag, platform string, drift bool) {
+	v := 0.0
+	if drift {
+		v = 1
+	}
+	m.DigestDrift.WithLabelValues(image, tag, platform).Set(v)
+}
+
 // RecordNotification records one notification delivery attempt.
 func (m *Metrics) RecordNotification(err error) {
 	m.NotificationsTotal.Inc()
@@ -205,7 +222,7 @@ func (m *Metrics) RecordRegistryRequest(host string, duration time.Duration, err
 	if err != nil {
 		m.RegistryErrorsTotal.WithLabelValues(host).Inc()
 	}
-	m.RegistryRequestDurationSeconds.WithLabelValues(host).Set(duration.Seconds())
+	m.RegistryRequestDurationSeconds.WithLabelValues(host).Observe(duration.Seconds())
 }
 
 // RecordEnrichment records one enrichment attempt.

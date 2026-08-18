@@ -119,6 +119,7 @@ func TestVecMetrics_AbsentUntilTouched(t *testing.T) {
 	vecNames := []string{
 		"image_watch_updates_available",
 		"image_watch_observation_stale",
+		"image_watch_digest_drift",
 		"image_watch_registry_requests_total",
 		"image_watch_registry_errors_total",
 		"image_watch_registry_request_duration_seconds",
@@ -144,8 +145,11 @@ func TestRecordCheck(t *testing.T) {
 	if got := scalarValue(t, body, "image_watch_check_errors_total"); got != 1 {
 		t.Errorf("check_errors_total = %v, want 1", got)
 	}
-	if got := scalarValue(t, body, "image_watch_check_duration_seconds"); got != 1 {
-		t.Errorf("check_duration_seconds = %v, want 1 (most recent cycle)", got)
+	if got := scalarValue(t, body, "image_watch_check_duration_seconds_count"); got != 3 {
+		t.Errorf("check_duration_seconds_count = %v, want 3 (one sample per check)", got)
+	}
+	if got := scalarValue(t, body, "image_watch_check_duration_seconds_sum"); got != 6 {
+		t.Errorf("check_duration_seconds_sum = %v, want 6 (2+3+1 seconds)", got)
 	}
 }
 
@@ -264,9 +268,28 @@ func TestRecordRegistryRequest(t *testing.T) {
 	if _, ok := labeledValue(t, body, "image_watch_registry_errors_total", map[string]string{"registry": "docker.io"}); ok {
 		t.Errorf("expected no errors_total sample for docker.io (never errored) -- CounterVec should not fabricate an untouched series")
 	}
-	// Duration reflects the most recent request per host.
-	if got, ok := labeledValue(t, body, "image_watch_registry_request_duration_seconds", map[string]string{"registry": "ghcr.io"}); !ok || got != 0.1 {
-		t.Errorf("ghcr.io request_duration_seconds = %v (ok=%v), want 0.1 (most recent request)", got, ok)
+	// Duration is a histogram: every request is observed.
+	if got, ok := labeledValue(t, body, "image_watch_registry_request_duration_seconds_count", map[string]string{"registry": "ghcr.io"}); !ok || got != 2 {
+		t.Errorf("ghcr.io request_duration_seconds_count = %v (ok=%v), want 2", got, ok)
+	}
+	if got, ok := labeledValue(t, body, "image_watch_registry_request_duration_seconds_sum", map[string]string{"registry": "ghcr.io"}); !ok || got != 0.35 {
+		t.Errorf("ghcr.io request_duration_seconds_sum = %v (ok=%v), want 0.35 (0.25+0.1)", got, ok)
+	}
+}
+
+func TestDigestDrift(t *testing.T) {
+	m := New()
+	m.SetDigestDrift("docker.io/library/pg", "15", "linux/arm64", true)
+
+	body := scrape(t, m)
+	if v, ok := labeledValue(t, body, "image_watch_digest_drift", map[string]string{"image": "docker.io/library/pg", "tag": "15", "platform": "linux/arm64"}); !ok || v != 1 {
+		t.Errorf("expected digest_drift = 1 while running a different digest, got ok=%v val=%v", ok, v)
+	}
+
+	m.SetDigestDrift("docker.io/library/pg", "15", "linux/arm64", false)
+	body = scrape(t, m)
+	if v, ok := labeledValue(t, body, "image_watch_digest_drift", map[string]string{"image": "docker.io/library/pg", "tag": "15", "platform": "linux/arm64"}); !ok || v != 0 {
+		t.Errorf("expected digest_drift = 0 once the running digest matches the registry, got ok=%v val=%v", ok, v)
 	}
 }
 
