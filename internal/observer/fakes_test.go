@@ -25,6 +25,9 @@ func (f *fakeRuntime) ListContainers(ctx context.Context) ([]iwruntime.Container
 type fakeRegistry struct {
 	tags      map[string][]string          // repository -> tags
 	manifests map[string]map[string]string // repository -> tag -> platform manifest digest
+	// indexDigests maps repository -> tag -> index (multi-arch) digest.
+	// Distinct from the platform manifest digest to model multi-arch images.
+	indexDigests map[string]map[string]string
 	// platforms restricts which platforms a given repository+tag has a manifest for.
 	platformsFor map[string]map[string][]image.Platform
 	listErr      error
@@ -35,12 +38,18 @@ type fakeRegistry struct {
 	// verify the observer's per-cycle candidate-resolve memoization
 	// actually avoids redundant calls).
 	resolveCalls map[string]int
+
+	// resolveOrder logs each ResolveForPlatform invocation as
+	// "repository/tag" in call order, so tests can assert resolution
+	// ordering (e.g. enrichment trying the newest tag first).
+	resolveOrder []string
 }
 
 func newFakeRegistry() *fakeRegistry {
 	return &fakeRegistry{
 		tags:         make(map[string][]string),
 		manifests:    make(map[string]map[string]string),
+		indexDigests: make(map[string]map[string]string),
 		platformsFor: make(map[string]map[string][]image.Platform),
 		resolveErr:   make(map[string]error),
 		resolveCalls: make(map[string]int),
@@ -56,6 +65,14 @@ func (f *fakeRegistry) setDigest(repository, tag, digest string) {
 		f.manifests[repository] = make(map[string]string)
 	}
 	f.manifests[repository][tag] = digest
+}
+
+// setIndexDigest attaches a distinct multi-arch index digest to a tag.
+func (f *fakeRegistry) setIndexDigest(repository, tag, digest string) {
+	if f.indexDigests[repository] == nil {
+		f.indexDigests[repository] = make(map[string]string)
+	}
+	f.indexDigests[repository][tag] = digest
 }
 
 // setPlatforms restricts which platforms a repository+tag's manifest is
@@ -84,6 +101,7 @@ func (f *fakeRegistry) Resolve(ctx context.Context, repository, reference string
 
 func (f *fakeRegistry) ResolveForPlatform(ctx context.Context, repository, reference string, platform image.Platform) (registry.ManifestObservation, error) {
 	f.resolveCalls[repository+"/"+reference]++
+	f.resolveOrder = append(f.resolveOrder, repository+"/"+reference)
 
 	if err, ok := f.resolveErr[repository+"/"+reference]; ok {
 		return registry.ManifestObservation{}, err
@@ -106,7 +124,10 @@ func (f *fakeRegistry) ResolveForPlatform(ctx context.Context, repository, refer
 		}
 	}
 
-	return registry.ManifestObservation{PlatformManifestDigest: digest}, nil
+	return registry.ManifestObservation{
+		PlatformManifestDigest: digest,
+		IndexDigest:            f.indexDigests[repository][reference],
+	}, nil
 }
 
 var _ registry.Registry = (*fakeRegistry)(nil)

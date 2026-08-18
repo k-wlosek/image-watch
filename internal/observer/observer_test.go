@@ -183,6 +183,196 @@ func TestScenario3_MutableLatest(t *testing.T) {
 	}
 }
 
+func TestDigestDrift_OpaqueBackfillFirstRun(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	reg := newFakeRegistry()
+	reg.setTags("acme/foo", []string{"1.2.4", "1.2.5"})
+	reg.setDigest("acme/foo", "1.2.4", "sha256:new")
+	reg.setDigest("acme/foo", "1.2.5", "sha256:other")
+	reg.setDigest("acme/foo", "latest", "sha256:new")
+
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("foo1", "ghcr.io/acme/foo:latest", "sha256:old", plat),
+	}}
+	results, err := newTestObserver(rt, reg).Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check error: %v", err)
+	}
+	ev := findEvent(results[0].Events, event.TagChanged)
+	if ev == nil {
+		t.Fatalf("expected TAG_CHANGED drift on first run behind, events: %+v", results[0].Events)
+	}
+	if ev.CurrentDigest != "sha256:old" || ev.CandidateDigest != "sha256:new" {
+		t.Errorf("drift digests = %s -> %s, want sha256:old -> sha256:new", ev.CurrentDigest, ev.CandidateDigest)
+	}
+	if ev.CandidateTag != "1.2.4" {
+		t.Errorf("expected enrichment to infer 1.2.4, got %q", ev.CandidateTag)
+	}
+}
+
+func TestDigestDrift_OpaqueEnrichmentUsesPlatformDigest(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	reg := newFakeRegistry()
+	reg.setTags("acme/foo", []string{"1.2.4"})
+	// Multi-arch image: the tag's index digest differs from its amd64
+	// platform manifest. Candidate 1.2.4 serves the same amd64 image.
+	reg.setIndexDigest("acme/foo", "latest", "sha256:index-X")
+	reg.setDigest("acme/foo", "latest", "sha256:platform-Y")
+	reg.setDigest("acme/foo", "1.2.4", "sha256:platform-Y")
+
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("foo1", "ghcr.io/acme/foo:latest", "sha256:index-Z", plat),
+	}}
+	results, err := newTestObserver(rt, reg).Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check error: %v", err)
+	}
+	ev := findEvent(results[0].Events, event.TagChanged)
+	if ev == nil {
+		t.Fatalf("expected TAG_CHANGED drift, events: %+v", results[0].Events)
+	}
+	if ev.CandidateDigest != "sha256:index-X" {
+		t.Errorf("CandidateDigest = %q, want index digest sha256:index-X (index-level comparison)", ev.CandidateDigest)
+	}
+	if ev.CandidateTag != "1.2.4" {
+		t.Errorf("expected enrichment over the platform digest to infer 1.2.4, got %q", ev.CandidateTag)
+	}
+}
+
+func TestDigestDrift_OpaqueNoDrift(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	reg := newFakeRegistry()
+	reg.setDigest("acme/foo", "latest", "sha256:same")
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("foo1", "ghcr.io/acme/foo:latest", "sha256:same", plat),
+	}}
+	results, err := newTestObserver(rt, reg).Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check error: %v", err)
+	}
+	if len(results[0].Events) != 0 {
+		t.Errorf("expected no events when running==served, got %+v", results[0].Events)
+	}
+}
+
+func TestDigestDrift_OpaqueMidWatchNewStaleContainer(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	reg := newFakeRegistry()
+	reg.setDigest("acme/foo", "latest", "sha256:new")
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("foo1", "ghcr.io/acme/foo:latest", "sha256:new", plat),
+	}}
+	o := newTestObserver(rt, reg)
+
+	if results, err := o.Check(context.Background()); err != nil {
+		t.Fatalf("baseline check error: %v", err)
+	} else if len(results[0].Events) != 0 {
+		t.Fatalf("expected no drift on baseline, got %+v", results[0].Events)
+	}
+
+	// A stale container joins the already-watched group mid-watch.
+	rt.containers = append(rt.containers, container("foo2", "ghcr.io/acme/foo:latest", "sha256:stale-old", plat))
+	results, err := o.Check(context.Background())
+	if err != nil {
+		t.Fatalf("second check error: %v", err)
+	}
+	ev := findEvent(results[0].Events, event.TagChanged)
+	if ev == nil {
+		t.Fatalf("expected TAG_CHANGED drift for new stale container, events: %+v", results[0].Events)
+	}
+	if ev.CurrentDigest != "sha256:stale-old" || ev.CandidateDigest != "sha256:new" {
+		t.Errorf("drift digests = %s -> %s, want sha256:stale-old -> sha256:new", ev.CurrentDigest, ev.CandidateDigest)
+	}
+}
+
+func TestDigestDrift_VersionableFirstRun(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	reg := newFakeRegistry()
+	reg.setDigest("acme/foo", "1.2.3", "sha256:new")
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("foo1", "ghcr.io/acme/foo:1.2.3", "sha256:old", plat),
+	}}
+	results, err := newTestObserver(rt, reg).Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check error: %v", err)
+	}
+	ev := findEvent(results[0].Events, event.TagMutated)
+	if ev == nil {
+		t.Fatalf("expected TAG_MUTATED drift on first run behind, events: %+v", results[0].Events)
+	}
+	if ev.CurrentDigest != "sha256:old" || ev.CandidateDigest != "sha256:new" {
+		t.Errorf("drift digests = %s -> %s, want sha256:old -> sha256:new", ev.CurrentDigest, ev.CandidateDigest)
+	}
+}
+
+func TestDigestDrift_TransitionBeatsDrift(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	reg := newFakeRegistry()
+	reg.setDigest("acme/foo", "latest", "sha256:AAAA")
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("foo1", "ghcr.io/acme/foo:latest", "sha256:AAAA", plat),
+	}}
+	o := newTestObserver(rt, reg)
+	if _, err := o.Check(context.Background()); err != nil {
+		t.Fatalf("baseline check error: %v", err)
+	}
+
+	// The registry moves the tag (a real transition) while the container
+	// stays behind. Only the transition should surface, not drift.
+	reg.setDigest("acme/foo", "latest", "sha256:BBBB")
+	results, err := o.Check(context.Background())
+	if err != nil {
+		t.Fatalf("second check error: %v", err)
+	}
+	events := results[0].Events
+	if len(events) != 1 {
+		t.Fatalf("want exactly 1 event (the transition), got %d: %+v", len(events), events)
+	}
+	if events[0].Type != event.TagChanged {
+		t.Errorf("expected TAG_CHANGED transition, got %+v", events[0])
+	}
+}
+
+func TestDigestDrift_UnknownDigestSkipped(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	reg := newFakeRegistry()
+	reg.setDigest("acme/foo", "latest", "sha256:new")
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("foo1", "ghcr.io/acme/foo:latest", "", plat),
+	}}
+	results, err := newTestObserver(rt, reg).Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check error: %v", err)
+	}
+	if len(results[0].Events) != 0 {
+		t.Errorf("expected no drift events for unknown running digest, got %+v", results[0].Events)
+	}
+}
+
+func TestDigestDrift_DistinctDigestsEmitSeparateEvents(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	reg := newFakeRegistry()
+	reg.setDigest("acme/foo", "latest", "sha256:new")
+	rt := &fakeRuntime{containers: []iwruntime.ContainerObservation{
+		container("foo1", "ghcr.io/acme/foo:latest", "sha256:old-a", plat),
+		container("foo2", "ghcr.io/acme/foo:latest", "sha256:old-b", plat),
+		container("foo3", "ghcr.io/acme/foo:latest", "sha256:old-a", plat),
+	}}
+	results, err := newTestObserver(rt, reg).Check(context.Background())
+	if err != nil {
+		t.Fatalf("Check error: %v", err)
+	}
+	var drift []event.Event
+	for _, e := range results[0].Events {
+		if e.Type == event.TagChanged {
+			drift = append(drift, e)
+		}
+	}
+	if len(drift) != 2 {
+		t.Errorf("want 2 drift events (two distinct old digests), got %d: %+v", len(drift), drift)
+	}
+}
+
 func TestScenario4_VersionTagMutation(t *testing.T) {
 	plat := image.Platform{OS: "linux", Architecture: "amd64"}
 	reg := newFakeRegistry()

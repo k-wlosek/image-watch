@@ -45,6 +45,18 @@ func TestFingerprint_DifferentDigestDiffers(t *testing.T) {
 	}
 }
 
+func TestFingerprint_DifferentCurrentDigestDiffers(t *testing.T) {
+	a := baseEvent()
+	a.Type = TagMutated
+	a.CandidateDigest = "sha256:YYYY"
+	b := a
+	a.CurrentDigest = "sha256:XXXX"
+	b.CurrentDigest = "sha256:ZZZZ"
+	if Fingerprint(a) == Fingerprint(b) {
+		t.Errorf("expected different current digests to produce different fingerprints (drift identity)")
+	}
+}
+
 func TestFingerprint_DifferentPlatformDiffers(t *testing.T) {
 	a := baseEvent()
 	b := baseEvent()

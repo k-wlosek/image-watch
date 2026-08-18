@@ -178,8 +178,14 @@ func (o *Observer) checkGroup(ctx context.Context, key groupKey, members []iwrun
 
 	tv := version.ParseTag(key.Tag)
 
-	result.Events = append(result.Events, o.detectDigestEvents(ctx, reg, key, tv, previous, found, registryObs)...)
+	digestEvents := o.detectDigestEvents(ctx, reg, key, tv, previous, found, registryObs)
 	candidateEvents, candidatesPartial := o.detectVersionCandidateEvents(ctx, reg, key)
+	result.Events = append(result.Events, digestEvents...)
+	if len(digestEvents) == 0 {
+		// No digest transition this cycle, so surface point-in-time drift:
+		// containers running a different digest than the registry serves.
+		result.Events = append(result.Events, o.detectDigestDriftEvents(ctx, reg, key, tv, result.ServedDigest, registryObs.PlatformManifestDigest, result.ContainerDigests)...)
+	}
 	result.Events = append(result.Events, candidateEvents...)
 	if candidatesPartial {
 		result.Partial = true
@@ -220,17 +226,61 @@ func (o *Observer) detectDigestEvents(ctx context.Context, reg registry.Registry
 		Platform:        key.Platform,
 	}
 
+	ev.Type = digestEventType(tv)
 	if tv.IsOpaque() {
-		ev.Type = event.TagChanged
 		// Best-effort enrichment.
 		if inferredTag, ok := o.attemptEnrichment(ctx, reg, key, registryObs.PlatformManifestDigest); ok {
 			ev.CandidateTag = inferredTag
 		}
-	} else {
-		ev.Type = event.TagMutated
 	}
 
 	return []event.Event{ev}
+}
+
+// digestEventType reports the event type for a same-tag digest change or
+// point-in-time drift: opaque tags get TagChanged, versionable tags get
+// TagMutated.
+func digestEventType(tv version.TagVersion) event.Type {
+	if tv.IsOpaque() {
+		return event.TagChanged
+	}
+	return event.TagMutated
+}
+
+// detectDigestDriftEvents surfaces containers running a different digest
+// than the registry currently serves for their tag.
+func (o *Observer) detectDigestDriftEvents(ctx context.Context, reg registry.Registry, key groupKey, tv version.TagVersion, served, platformDigest string, running []string) []event.Event {
+	if served == "" {
+		return nil
+	}
+
+	ref := image.Reference{Registry: key.Registry, Repository: key.Repository, Tag: &key.Tag}
+	var events []event.Event
+	seen := make(map[string]bool)
+	for _, dig := range running {
+		if dig == "" || dig == served || seen[dig] {
+			continue
+		}
+		seen[dig] = true
+
+		ev := event.Event{
+			Timestamp:       o.now(),
+			Image:           ref,
+			Type:            digestEventType(tv),
+			CurrentTag:      key.Tag,
+			CurrentDigest:   dig,
+			CandidateDigest: served,
+			Platform:        key.Platform,
+		}
+		if tv.IsOpaque() {
+			// Best-effort enrichment.
+			if inferredTag, ok := o.attemptEnrichment(ctx, reg, key, platformDigest); ok {
+				ev.CandidateTag = inferredTag
+			}
+		}
+		events = append(events, ev)
+	}
+	return events
 }
 
 // detectVersionCandidateEvents computes version-based candidates.
