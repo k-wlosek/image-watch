@@ -7,13 +7,14 @@ RUN go mod download
 
 COPY . .
 
+ARG VERSION=dev
 RUN CGO_ENABLED=0 \
-    GOOS=linux \
-    go build \
-      -trimpath \
-      -ldflags="-s -w -X main.version=$(cat VERSION 2>/dev/null || echo dev)" \
-      -o /out/image-watch \
-      ./cmd/image-watch
+  GOOS=linux \
+  go build \
+  -trimpath \
+  -ldflags="-s -w -X main.version=${VERSION}" \
+  -o /out/image-watch \
+  ./cmd/image-watch
 
 FROM scratch
 
