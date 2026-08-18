@@ -56,7 +56,7 @@ docker logs "$NAME" 2>&1 | tail -40
 
 echo "metrics"
 curl -sf http://127.0.0.1:9090/metrics |
-	grep -E 'image_watch_(checks_total|containers|images|updates_available|observation_stale|registry_errors_total)' | head -60
+	grep -E 'image_watch'
 
 # Cleanup
 echo "cleaning up test containers and volume"

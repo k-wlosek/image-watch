@@ -76,10 +76,20 @@ type StateConfig struct {
 	Path string
 }
 
-// RegistryAuthConfig configures credentials for one registry host.
+// RegistryAuthConfig configures credentials and TLS trust for one registry host.
 type RegistryAuthConfig struct {
 	UsernameEnv string
 	PasswordEnv string
+
+	// Scheme is the connection scheme: "https" (default) or "http" for
+	// registries that serve plaintext (an explicit, insecure opt-in).
+	Scheme string
+
+	// CAFile is an optional path to a PEM bundle holding the private CA
+	// that issued the registry's certificate. Empty uses the system trust
+	// store. When set, this bundle replaces the system trust store for the
+	// host.
+	CAFile string
 }
 
 // Default returns the built-in configuration defaults.

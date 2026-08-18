@@ -1,7 +1,10 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
+	"net/http"
 	"os"
 	"time"
 
@@ -33,6 +36,23 @@ func buildObserver(cfg config.Config, m *metrics.Metrics) (*observer.Observer, e
 
 	registryClients := make(map[string]registry.Registry)
 	credentials := credentialProviderFor(cfg)
+
+	// Pre-build clients for configured hosts: custom TLS trust and plain
+	// HTTP are per-host wiring concerns that can't be expressed by the
+	// default client the resolver builds lazily.
+	for host, auth := range cfg.Registries {
+		httpClient, err := httpClientForRegistry(auth)
+		if err != nil {
+			return nil, fmt.Errorf("registry %s: %w", host, err)
+		}
+		c := distribution.New(host, httpClient, credentials)
+		c.Scheme = auth.Scheme
+		if m != nil {
+			c.Instrumentation = registryInstrumentation{m}
+		}
+		registryClients[host] = c
+	}
+
 	resolver := func(host string) registry.Registry {
 		if c, ok := registryClients[host]; ok {
 			return c
@@ -55,6 +75,29 @@ func buildObserver(cfg config.Config, m *metrics.Metrics) (*observer.Observer, e
 		obs.Metrics = enrichmentObserver{m}
 	}
 	return obs, nil
+}
+
+// httpClientForRegistry builds an http.Client honoring a registry host's
+// TLS trust configuration. It returns nil when no custom trust is
+// configured, letting distribution.New fall back to the default transport
+// (system trust store). The scheme is applied to the client's base URL by
+// the caller, not here.
+func httpClientForRegistry(auth config.RegistryAuthConfig) (*http.Client, error) {
+	if auth.CAFile == "" {
+		return nil, nil
+	}
+	pem, err := os.ReadFile(auth.CAFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read ca_file: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("ca_file %s contains no valid PEM certificates", auth.CAFile)
+	}
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{RootCAs: pool},
+	}
+	return &http.Client{Timeout: 15 * time.Second, Transport: transport}, nil
 }
 
 // registryInstrumentation adapts metrics to distribution.Instrumentation.

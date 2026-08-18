@@ -26,7 +26,11 @@ type Instrumentation interface {
 
 // Client is a Registry implementation backed by HTTP calls.
 type Client struct {
-	Host       string
+	Host string
+
+	// Scheme is the connection scheme for baseURL(): "https" (default)
+	// or "http" for insecure registries.
+	Scheme     string
 	httpClient *http.Client
 	auth       *authenticator
 
@@ -54,7 +58,11 @@ func (h *Client) baseURL() string {
 	if host == image.DefaultRegistry {
 		host = "registry-1.docker.io"
 	}
-	return "https://" + host
+	scheme := h.Scheme
+	if scheme == "" {
+		scheme = "https"
+	}
+	return scheme + "://" + host
 }
 
 func (h *Client) ListTags(ctx context.Context, repository string) ([]string, error) {

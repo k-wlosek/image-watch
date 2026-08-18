@@ -121,6 +121,10 @@ registries:
   ghcr.io:
     username_env: GHCR_USERNAME
     password_env: GHCR_PASSWORD
+    scheme: https
+    ca_file: /etc/ssl/private-ca.pem
+  registry.local:
+    scheme: http
 `)
 	cfg, err := Load(path)
 	if err != nil {
@@ -132,6 +136,24 @@ registries:
 	}
 	if auth.UsernameEnv != "GHCR_USERNAME" || auth.PasswordEnv != "GHCR_PASSWORD" {
 		t.Errorf("unexpected registry auth config: %+v", auth)
+	}
+	if auth.Scheme != "https" || auth.CAFile != "/etc/ssl/private-ca.pem" {
+		t.Errorf("expected scheme/ca_file to be parsed, got %+v", auth)
+	}
+	if plain, ok := cfg.Registries["registry.local"]; !ok || plain.Scheme != "http" {
+		t.Errorf("expected registry.local to parse scheme: http, got %+v", plain)
+	}
+}
+
+func TestLoad_InvalidRegistrySchemeErrors(t *testing.T) {
+	path := writeConfig(t, `
+registries:
+  registry.local:
+    scheme: invalid
+`)
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected an error for an unsupported registry scheme")
 	}
 }
 

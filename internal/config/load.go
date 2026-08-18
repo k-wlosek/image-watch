@@ -119,6 +119,8 @@ type rawConfig struct {
 	Registries map[string]struct {
 		UsernameEnv string `yaml:"username_env"`
 		PasswordEnv string `yaml:"password_env"`
+		Scheme      string `yaml:"scheme"`
+		CAFile      string `yaml:"ca_file"`
 	} `yaml:"registries"`
 }
 
@@ -203,6 +205,8 @@ func mergeRaw(cfg Config, raw rawConfig) (Config, error) {
 			cfg.Registries[host] = RegistryAuthConfig{
 				UsernameEnv: auth.UsernameEnv,
 				PasswordEnv: auth.PasswordEnv,
+				Scheme:      auth.Scheme,
+				CAFile:      auth.CAFile,
 			}
 		}
 	}
@@ -256,6 +260,11 @@ func validate(cfg Config) error {
 		case "stdout", "ntfy", "webhook":
 		default:
 			return fmt.Errorf("unrecognized notification target type %q", t.Type)
+		}
+	}
+	for host, auth := range cfg.Registries {
+		if auth.Scheme != "" && auth.Scheme != "http" && auth.Scheme != "https" {
+			return fmt.Errorf("registries.%s.scheme must be \"http\" or \"https\", got %q", host, auth.Scheme)
 		}
 	}
 	return nil

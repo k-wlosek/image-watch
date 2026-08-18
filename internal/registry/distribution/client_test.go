@@ -21,6 +21,22 @@ func newTLSTestClient(t *testing.T, srv *httptest.Server, creds CredentialProvid
 	return New(host, srv.Client(), creds)
 }
 
+func TestBaseURL_Scheme(t *testing.T) {
+	for _, tc := range []struct {
+		client Client
+		want   string
+	}{
+		{Client{Host: "registry.example.com"}, "https://registry.example.com"},
+		{Client{Host: "registry.example.com", Scheme: "http"}, "http://registry.example.com"},
+		{Client{Host: image.DefaultRegistry}, "https://registry-1.docker.io"},
+		{Client{Host: image.DefaultRegistry, Scheme: "http"}, "http://registry-1.docker.io"},
+	} {
+		if got := tc.client.baseURL(); got != tc.want {
+			t.Errorf("baseURL(%+v) = %q, want %q", tc.client, got, tc.want)
+		}
+	}
+}
+
 func TestListTags_Basic(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v2/library/nginx/tags/list", func(w http.ResponseWriter, r *http.Request) {
