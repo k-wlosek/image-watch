@@ -16,6 +16,10 @@ import (
 )
 
 func container(name, imageRef, imageID string, platform image.Platform) iwruntime.ContainerObservation {
+	return containerLabeled(name, imageRef, imageID, platform, nil)
+}
+
+func containerLabeled(name, imageRef, imageID string, platform image.Platform, labels map[string]string) iwruntime.ContainerObservation {
 	ref, err := image.ParseReference(imageRef)
 	if err != nil {
 		panic(err)
@@ -27,6 +31,7 @@ func container(name, imageRef, imageID string, platform image.Platform) iwruntim
 		Image:     ref,
 		Digest:    imageID,
 		Platform:  platform,
+		Labels:    labels,
 		CreatedAt: time.Unix(0, 0),
 	}
 }
@@ -79,6 +84,30 @@ func TestResultCarriesRunningAndServedDigests(t *testing.T) {
 	for i := range want {
 		if r.ContainerDigests[i] != want[i] {
 			t.Errorf("ContainerDigests[%d] = %q, want %q", i, r.ContainerDigests[i], want[i])
+		}
+	}
+}
+
+func TestGroupContainers_SkipsExcluded(t *testing.T) {
+	plat := image.Platform{OS: "linux", Architecture: "amd64"}
+	containers := []iwruntime.ContainerObservation{
+		container("watched", "ghcr.io/acme/foo:1.2.3", "sha256:a", plat),
+		containerLabeled("skipped", "ghcr.io/acme/foo:1.2.3", "sha256:b", plat, map[string]string{skipLabel: "true"}),
+		containerLabeled("falseLabel", "ghcr.io/acme/foo:1.2.3", "sha256:c", plat, map[string]string{skipLabel: "false"}),
+		containerLabeled("otherLabel", "ghcr.io/acme/bar:2.0.0", "sha256:d", plat, map[string]string{"com.example.other": "x"}),
+		containerLabeled("wrongValue", "ghcr.io/acme/baz:3.0.0", "sha256:e", plat, map[string]string{skipLabel: "TRUE"}),
+	}
+
+	groups := groupContainers(containers)
+
+	if len(groups) != 3 {
+		t.Fatalf("got %d groups, want 3: %v", len(groups), groups)
+	}
+	for key, members := range groups {
+		for _, m := range members {
+			if m.Labels[skipLabel] == "true" {
+				t.Errorf("group %v contains excluded container %s", key, m.Name)
+			}
 		}
 	}
 }

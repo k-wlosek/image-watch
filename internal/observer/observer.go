@@ -17,6 +17,10 @@ import (
 // RegistryResolver returns a Registry client for a host.
 type RegistryResolver func(registryHost string) registry.Registry
 
+// skipLabel is a container label that excludes the container from
+// observation entirely: no result, events, metrics, or notifications.
+const skipLabel = "image-watch.skip"
+
 // Observer performs one check cycle.
 type Observer struct {
 	Runtime       iwruntime.Runtime
@@ -98,6 +102,9 @@ func groupContainers(containers []iwruntime.ContainerObservation) map[groupKey][
 	groups := make(map[groupKey][]iwruntime.ContainerObservation)
 	for _, c := range containers {
 		if c.Image.IsDigestPinned() || c.Image.Tag == nil {
+			continue
+		}
+		if c.Labels[skipLabel] == "true" {
 			continue
 		}
 		key := groupKey{
