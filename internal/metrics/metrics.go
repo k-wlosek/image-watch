@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/k-wlosek/image-watch/internal/event"
@@ -152,6 +153,8 @@ func New() *Metrics {
 		m.EnrichmentAttemptsTotal,
 		m.EnrichmentSuccessTotal,
 		m.EnrichmentFailuresTotal,
+		collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
 	)
 
 	return m
