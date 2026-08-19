@@ -434,6 +434,9 @@ func TestScenario7_Deduplication(t *testing.T) {
 	if len(results[0].ContainerNames) != 20 {
 		t.Errorf("got %d container names, want 20", len(results[0].ContainerNames))
 	}
+	if len(results[0].ContainerPolicies) != 20 {
+		t.Errorf("got %d container policies, want 20", len(results[0].ContainerPolicies))
+	}
 }
 
 func TestScenario9_ContainerRecreation(t *testing.T) {

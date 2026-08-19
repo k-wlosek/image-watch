@@ -8,6 +8,7 @@ import (
 	"github.com/k-wlosek/image-watch/internal/event"
 	"github.com/k-wlosek/image-watch/internal/notify"
 	"github.com/k-wlosek/image-watch/internal/observer"
+	"github.com/k-wlosek/image-watch/internal/policy"
 	"github.com/k-wlosek/image-watch/internal/state"
 )
 
@@ -22,7 +23,8 @@ func BuildNotification(ctx context.Context, results []observer.Result, store sta
 		imageName := r.Image.Registry + "/" + r.Image.Repository
 
 		for _, e := range r.Events {
-			if !r.EffectivePolicy.Allows(e.Type) {
+			allowed, suppressed := allowContainers(r, e.Type)
+			if len(allowed) == 0 {
 				continue
 			}
 
@@ -44,12 +46,29 @@ func BuildNotification(ctx context.Context, results []observer.Result, store sta
 				CurrentDigest:     e.CurrentDigest,
 				CandidateDigest:   e.CandidateDigest,
 				CombinedCandidate: e.CombinedCandidate,
-				ContainerNames:    r.ContainerNames,
+				ContainerNames:    allowed,
+				Suppressed:        suppressed,
 			})
 		}
 	}
 
 	return note
+}
+
+// allowContainers splits a result's members by whether their own policy allows an event.
+func allowContainers(r observer.Result, t event.Type) (allowed, suppressed []string) {
+	for i, name := range r.ContainerNames {
+		p := policy.Default()
+		if i < len(r.ContainerPolicies) {
+			p = r.ContainerPolicies[i]
+		}
+		if p.Allows(t) {
+			allowed = append(allowed, name)
+		} else {
+			suppressed = append(suppressed, name)
+		}
+	}
+	return allowed, suppressed
 }
 
 // Deliver sends the notification through every configured notifier.

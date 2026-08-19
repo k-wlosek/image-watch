@@ -54,6 +54,9 @@ func (n *Notifier) Notify(_ context.Context, note notify.Notification) error {
 		if len(item.ContainerNames) > 0 {
 			fmt.Fprintf(w, "  containers: %v\n", item.ContainerNames)
 		}
+		if len(item.Suppressed) > 0 {
+			fmt.Fprintf(w, "  suppressed: %v\n", item.Suppressed)
+		}
 		fmt.Fprintln(w)
 	}
 	return nil

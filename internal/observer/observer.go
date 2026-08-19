@@ -60,6 +60,10 @@ type Result struct {
 	Events          []event.Event
 	ContainerNames  []string
 
+	// ContainerPolicies holds each member's label-adjusted policy, aligned
+	// with ContainerNames.
+	ContainerPolicies []policy.Policy
+
 	// ServedDigest is what the registry currently serves for the running
 	// tag: the index digest when the tag points to a multi-arch index,
 	// otherwise the platform manifest digest. Empty when the registry
@@ -206,11 +210,12 @@ func (o *Observer) now() time.Time {
 
 func (o *Observer) checkGroup(ctx context.Context, key groupKey, members []iwruntime.ContainerObservation) Result {
 	result := Result{
-		Image:            image.Reference{Registry: key.Registry, Repository: key.Repository, Tag: &key.Tag},
-		Platform:         key.Platform,
-		EffectivePolicy:  effectivePolicyFor(o.DefaultPolicy, members),
-		ContainerNames:   containerNames(members),
-		ContainerDigests: containerDigests(members),
+		Image:             image.Reference{Registry: key.Registry, Repository: key.Repository, Tag: &key.Tag},
+		Platform:          key.Platform,
+		EffectivePolicy:   effectivePolicyFor(o.DefaultPolicy, members),
+		ContainerNames:    containerNames(members),
+		ContainerPolicies: containerPolicies(o.DefaultPolicy, members),
+		ContainerDigests:  containerDigests(members),
 	}
 
 	reg := o.Registries(key.Registry)
@@ -513,6 +518,16 @@ func containerNames(members []iwruntime.ContainerObservation) []string {
 		names = append(names, c.Name)
 	}
 	return names
+}
+
+// containerPolicies returns each member's label-adjusted policy, aligned
+// with containerNames.
+func containerPolicies(base policy.Policy, members []iwruntime.ContainerObservation) []policy.Policy {
+	policies := make([]policy.Policy, 0, len(members))
+	for _, c := range members {
+		policies = append(policies, policy.ApplyLabels(base, c.Labels))
+	}
+	return policies
 }
 
 // containerDigests returns each member's running digest, aligned with

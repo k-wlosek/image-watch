@@ -33,10 +33,11 @@ func sampleResult(policyOverride func(p *policy.Policy)) observer.Result {
 	}
 	tag := "1.2.3"
 	return observer.Result{
-		Image:           image.Reference{Registry: "docker.io", Repository: "library/foo", Tag: &tag},
-		Platform:        image.Platform{OS: "linux", Architecture: "amd64"},
-		EffectivePolicy: p,
-		ContainerNames:  []string{"foo1"},
+		Image:             image.Reference{Registry: "docker.io", Repository: "library/foo", Tag: &tag},
+		Platform:          image.Platform{OS: "linux", Architecture: "amd64"},
+		EffectivePolicy:   p,
+		ContainerNames:    []string{"foo1"},
+		ContainerPolicies: []policy.Policy{p},
 		Events: []event.Event{
 			{Type: event.PatchAvailable, CurrentTag: "1.2.3", CandidateTag: "1.2.4",
 				Image:    image.Reference{Registry: "docker.io", Repository: "library/foo"},
@@ -58,6 +59,64 @@ func TestBuildNotification_PolicyFiltersDisallowedTypes(t *testing.T) {
 	}
 	if note.Items[0].Type != event.PatchAvailable {
 		t.Errorf("got %s, want PATCH_AVAILABLE", note.Items[0].Type)
+	}
+}
+
+func TestBuildNotification_PerContainerPolicy(t *testing.T) {
+	allow := policy.Default()
+	deny := policy.Default()
+	deny.Patch = false
+
+	tag := "1.2.3"
+	results := []observer.Result{{
+		Image:             image.Reference{Registry: "docker.io", Repository: "library/foo", Tag: &tag},
+		Platform:          image.Platform{OS: "linux", Architecture: "amd64"},
+		EffectivePolicy:   policy.MergeAll([]policy.Policy{allow, deny}),
+		ContainerNames:    []string{"want", "skip"},
+		ContainerPolicies: []policy.Policy{allow, deny},
+		Events: []event.Event{
+			{Type: event.PatchAvailable, CurrentTag: "1.2.3", CandidateTag: "1.2.4",
+				Image:    image.Reference{Registry: "docker.io", Repository: "library/foo"},
+				Platform: image.Platform{OS: "linux", Architecture: "amd64"}},
+		},
+	}}
+	store := state.NewMemoryStore()
+
+	note := BuildNotification(context.Background(), results, store)
+	if len(note.Items) != 1 {
+		t.Fatalf("expected 1 item for the container that allows PATCH, got %d", len(note.Items))
+	}
+	item := note.Items[0]
+	if len(item.ContainerNames) != 1 || item.ContainerNames[0] != "want" {
+		t.Errorf("ContainerNames = %v, want [want]", item.ContainerNames)
+	}
+	if len(item.Suppressed) != 1 || item.Suppressed[0] != "skip" {
+		t.Errorf("Suppressed = %v, want [skip]", item.Suppressed)
+	}
+}
+
+func TestBuildNotification_AllContainersSuppressed(t *testing.T) {
+	deny := policy.Default()
+	deny.Patch = false
+
+	tag := "1.2.3"
+	results := []observer.Result{{
+		Image:             image.Reference{Registry: "docker.io", Repository: "library/foo", Tag: &tag},
+		Platform:          image.Platform{OS: "linux", Architecture: "amd64"},
+		EffectivePolicy:   deny,
+		ContainerNames:    []string{"skip"},
+		ContainerPolicies: []policy.Policy{deny},
+		Events: []event.Event{
+			{Type: event.PatchAvailable, CurrentTag: "1.2.3", CandidateTag: "1.2.4",
+				Image:    image.Reference{Registry: "docker.io", Repository: "library/foo"},
+				Platform: image.Platform{OS: "linux", Architecture: "amd64"}},
+		},
+	}}
+	store := state.NewMemoryStore()
+
+	note := BuildNotification(context.Background(), results, store)
+	if len(note.Items) != 0 {
+		t.Errorf("expected no items when every container suppresses the event, got %d", len(note.Items))
 	}
 }
 

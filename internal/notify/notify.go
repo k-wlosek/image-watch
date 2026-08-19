@@ -26,6 +26,9 @@ type Item struct {
 	CombinedCandidate string
 
 	ContainerNames []string
+
+	// Suppressed lists containers whose labels disallow this event type.
+	Suppressed []string
 }
 
 // Notification is a batch of Items ready for delivery.

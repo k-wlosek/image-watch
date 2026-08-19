@@ -71,3 +71,17 @@ func TestNotify_ContainerNamesIncluded(t *testing.T) {
 		t.Errorf("expected container names in output, got:\n%s", out)
 	}
 }
+
+func TestNotify_SuppressedContainersListed(t *testing.T) {
+	var b strings.Builder
+	n := &Notifier{Writer: &b}
+	note := notify.Notification{Items: []notify.Item{
+		{Image: "docker.io/library/nginx", Type: event.PatchAvailable, CurrentTag: "1", CandidateTag: "2",
+			ContainerNames: []string{"web1"}, Suppressed: []string{"web2"}},
+	}}
+	n.Notify(context.Background(), note)
+	out := b.String()
+	if !strings.Contains(out, "suppressed: [web2]") {
+		t.Errorf("expected suppressed container line, got:\n%s", out)
+	}
+}

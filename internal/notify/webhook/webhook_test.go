@@ -51,6 +51,36 @@ func TestNotify_SendsExpectedPayload(t *testing.T) {
 	if p.Platform == nil || p.Platform.OS != "linux" || p.Platform.Architecture != "amd64" {
 		t.Errorf("expected platform linux/amd64, got %+v", p.Platform)
 	}
+	if p.Containers != nil {
+		t.Errorf("expected no containers when unset, got %v", p.Containers)
+	}
+}
+
+func TestNotify_PayloadIncludesContainersAndSuppressed(t *testing.T) {
+	var received payload
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	n := New(Config{URL: srv.URL}, srv.Client())
+	note := notify.Notification{Items: []notify.Item{
+		{
+			Image: "ghcr.io/acme/foo", Type: event.PatchAvailable,
+			CurrentTag: "1.2.3", CandidateTag: "1.2.4",
+			ContainerNames: []string{"web1"}, Suppressed: []string{"web2"},
+		},
+	}}
+	if err := n.Notify(context.Background(), note); err != nil {
+		t.Fatalf("Notify error: %v", err)
+	}
+	if len(received.Containers) != 1 || received.Containers[0] != "web1" {
+		t.Errorf("Containers = %v, want [web1]", received.Containers)
+	}
+	if len(received.Suppressed) != 1 || received.Suppressed[0] != "web2" {
+		t.Errorf("Suppressed = %v, want [web2]", received.Suppressed)
+	}
 }
 
 func TestNotify_OneItemFailureDoesNotPreventOthers(t *testing.T) {

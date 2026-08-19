@@ -37,11 +37,13 @@ var _ notify.Notifier = (*Notifier)(nil)
 
 // payload matches the JSON sent by the webhook notifier.
 type payload struct {
-	Event     string           `json:"event"`
-	Image     string           `json:"image"`
-	Current   string           `json:"current"`
-	Candidate string           `json:"candidate"`
-	Platform  *platformPayload `json:"platform,omitempty"`
+	Event      string           `json:"event"`
+	Image      string           `json:"image"`
+	Current    string           `json:"current"`
+	Candidate  string           `json:"candidate"`
+	Platform   *platformPayload `json:"platform,omitempty"`
+	Containers []string         `json:"containers,omitempty"`
+	Suppressed []string         `json:"suppressed,omitempty"`
 }
 
 type platformPayload struct {
@@ -75,6 +77,8 @@ func (n *Notifier) sendOne(ctx context.Context, item notify.Item) error {
 		os, arch := splitPlatform(item.Platform)
 		p.Platform = &platformPayload{OS: os, Architecture: arch}
 	}
+	p.Containers = item.ContainerNames
+	p.Suppressed = item.Suppressed
 
 	body, err := json.Marshal(p)
 	if err != nil {
