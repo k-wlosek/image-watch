@@ -1,0 +1,57 @@
+# image-watch configuration example.
+
+runtime:
+  type: docker
+  endpoint: unix:///var/run/docker.sock
+
+check_interval: 6h
+
+policy:
+  patch: true
+  minor: true
+  major: true
+  family_advancement: false
+  base_advancement: true
+  tag_changed: true
+  tag_mutated: true
+  other_platform: false
+
+notifications:
+  mode: batch # "batch" or "individual"
+  targets:
+    - type: stdout
+    - type: ntfy
+      topic: docker-updates
+      title: image updates
+      server_url: https://ntfy.sh # optional
+      username_env: NTFY_USER # optional, set environment variable NTFY_USER to your username to use it
+      password_env: NTFY_PASS # optional, set environment variable NTFY_PASS to your password to use it
+      priority: high # optional
+    - type: webhook
+      url: https://example.com/image-watch
+  registry_outage:
+    enabled: false
+    consecutive_failures: 3
+
+metrics:
+  enabled: true
+  listen: 0.0.0.0:9090
+
+state:
+  path: /var/lib/image-watch/state.db
+
+enrichment:
+  max_tags: 100
+  timeout: 30s
+
+concurrency:
+  workers: 4
+
+# Optional per-host registry credentials and TLS options:
+registries:
+  ghcr.io:
+    username_env: GHCR_USERNAME # optional, set environment variable GHCR_USERNAME to your username to use it
+    password_env: GHCR_PASSWORD # optional, set environment variable GHCR_PASSWORD to your password to use it
+  registry.local:
+    scheme: http # http/https, default https
+    ca_file: /etc/image-watch/ca.pem # optional, for self-signed certs with https

@@ -2,22 +2,19 @@
 
 services:
   image-watch:
-    image: ghcr.io/example/image-watch:latest
+    image: ghcr.io/k-wlosek/image-watch:latest
     restart: unless-stopped
 
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - image-watch-data:/var/lib/image-watch
+      - ./data:/var/lib/image-watch/
+      # - ./config.yaml:/etc/image-watch/config.yaml:ro
 
     # Bind to localhost only.
     ports:
       - "127.0.0.1:9090:9090"
 
-    environment:
+    # environment:
       # IMAGE_WATCH_CHECK_INTERVAL: 6h
       # GHCR_USERNAME: ""
       # GHCR_PASSWORD: ""
-      TZ: UTC
-
-volumes:
-  image-watch-data:
