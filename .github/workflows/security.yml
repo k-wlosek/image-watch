@@ -18,6 +18,7 @@ jobs:
     permissions:
       contents: read # same as global permissions
       security-events: write # required to write sarif report
+      actions: read # required to upload sarif report
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -26,7 +27,8 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Run govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 -format sarif -output govulncheck.sarif ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 -format sarif ./... > govulncheck.sarif
+        continue-on-error: true
       - name: Upload SARIF report
         uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
