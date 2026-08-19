@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/k-wlosek/image-watch/internal/event"
@@ -59,7 +60,9 @@ func TestNotify_SendsExpectedPayload(t *testing.T) {
 func TestNotify_PayloadIncludesContainersAndSuppressed(t *testing.T) {
 	var received payload
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&received)
+		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
+			t.Errorf("failed to decode payload: %v", err)
+		}
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -88,7 +91,9 @@ func TestNotify_OneItemFailureDoesNotPreventOthers(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		var p payload
-		json.NewDecoder(r.Body).Decode(&p)
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			t.Errorf("failed to decode payload: %v", err)
+		}
 		if p.Candidate == "fails" {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
@@ -117,5 +122,58 @@ func TestNotify_NoURLConfigured(t *testing.T) {
 	err := n.Notify(context.Background(), notify.Notification{Items: []notify.Item{{}}})
 	if err == nil {
 		t.Fatal("expected an error when no URL is configured")
+	}
+}
+
+func TestNotify_DoesNotSendWhenRequestBuildFails(t *testing.T) {
+	var called bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	n := New(Config{URL: "http://exa mple" /* invalid per http.NewRequest */}, srv.Client())
+	err := n.Notify(context.Background(), notify.Notification{Items: []notify.Item{{
+		Image: "a", Type: event.PatchAvailable, CurrentTag: "1", CandidateTag: "2",
+	}}})
+	if err == nil {
+		t.Fatal("expected an error building the request")
+	}
+	if called {
+		t.Error("request must not be sent when the URL is invalid")
+	}
+}
+
+func TestNotify_NonSuccessStatusIsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusGatewayTimeout)
+		w.Write([]byte("upstream timeout"))
+	}))
+	defer srv.Close()
+
+	n := New(Config{URL: srv.URL}, srv.Client())
+	err := n.Notify(context.Background(), notify.Notification{Items: []notify.Item{{
+		Image: "a", Type: event.PatchAvailable, CurrentTag: "1", CandidateTag: "2",
+	}}})
+	if err == nil || !strings.Contains(err.Error(), "504") {
+		t.Fatalf("expected a 504 error, got %v", err)
+	}
+}
+
+func TestNotify_EmptyItemsSendsNothing(t *testing.T) {
+	var called bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	n := New(Config{URL: srv.URL}, srv.Client())
+	if err := n.Notify(context.Background(), notify.Notification{}); err != nil {
+		t.Fatalf("Notify error: %v", err)
+	}
+	if called {
+		t.Error("expected no HTTP request for an empty notification")
 	}
 }

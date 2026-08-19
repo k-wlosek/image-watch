@@ -2,6 +2,7 @@ package observer
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/k-wlosek/image-watch/internal/image"
@@ -96,5 +97,15 @@ func TestAttemptEnrichment_SkipsCurrentAndNonVersion(t *testing.T) {
 	// "latest" (the current tag) and "dev" (opaque) must not be resolved.
 	if len(reg.resolveOrder) != 1 || reg.resolveOrder[0] != "acme/foo/1.2.4" {
 		t.Errorf("expected only the matching version tag resolved, got %v", reg.resolveOrder)
+	}
+}
+
+func TestAttemptEnrichment_ListError(t *testing.T) {
+	reg := newFakeRegistry()
+	reg.listErr = errors.New("list failed")
+	o := newTestObserver(&fakeRuntime{}, reg)
+	tag, ok := o.attemptEnrichment(context.Background(), reg, enrichmentKey(), "sha256:nope", newGroupCache())
+	if ok || tag != "" {
+		t.Fatalf("enrichment = %q, %v; want false on list error", tag, ok)
 	}
 }

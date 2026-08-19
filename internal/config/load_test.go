@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -309,5 +310,82 @@ func TestLoad_ConfigPathEnvVar(t *testing.T) {
 	}
 	if cfg.CheckInterval != 45*time.Minute {
 		t.Errorf("expected IMAGE_WATCH_CONFIG_PATH to be honored, got %s", cfg.CheckInterval)
+	}
+}
+
+func TestLoad_ConfigPathIsDirectoryErrors(t *testing.T) {
+	dir := t.TempDir() // a directory, not a file
+	_, err := Load(dir)
+	if err == nil || !strings.Contains(err.Error(), "failed to read") {
+		t.Fatalf("expected a read failure for a directory path, got %v", err)
+	}
+}
+
+func TestLoad_InvalidYAMLErrors(t *testing.T) {
+	path := writeConfig(t, "check_interval: [unclosed")
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected a YAML parse error")
+	}
+}
+
+func TestLoad_MergeRawOverrides(t *testing.T) {
+	path := writeConfig(t, `
+runtime:
+  endpoint: tcp://127.0.0.1:2375
+
+notifications:
+  registry_outage:
+    enabled: true
+    consecutive_failures: 5
+
+metrics:
+  listen: "127.0.0.1:9999"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Runtime.Endpoint != "tcp://127.0.0.1:2375" {
+		t.Errorf("Runtime.Endpoint = %q", cfg.Runtime.Endpoint)
+	}
+	if !cfg.Notifications.RegistryOutage.Enabled || cfg.Notifications.RegistryOutage.ConsecutiveFailures != 5 {
+		t.Errorf("RegistryOutage = %+v, want enabled + 5 failures", cfg.Notifications.RegistryOutage)
+	}
+	if cfg.Metrics.Listen != "127.0.0.1:9999" {
+		t.Errorf("Metrics.Listen = %q", cfg.Metrics.Listen)
+	}
+}
+
+func TestApplyEnvOverrides_StateRuntimeMetrics(t *testing.T) {
+	t.Setenv("IMAGE_WATCH_STATE_PATH", "/tmp/test-state.db")
+	t.Setenv("IMAGE_WATCH_RUNTIME_TYPE", "docker")
+	t.Setenv("IMAGE_WATCH_RUNTIME_ENDPOINT", "tcp://10.0.0.1:2375")
+	t.Setenv("IMAGE_WATCH_METRICS_LISTEN", "127.0.0.1:8080")
+
+	cfg := Default()
+	got, err := applyEnvOverrides(cfg)
+	if err != nil {
+		t.Fatalf("applyEnvOverrides: %v", err)
+	}
+	if got.State.Path != "/tmp/test-state.db" || got.Runtime.Endpoint != "tcp://10.0.0.1:2375" || got.Metrics.Listen != "127.0.0.1:8080" {
+		t.Errorf("env overrides not applied: %+v", got)
+	}
+}
+
+func TestLoad_InvalidIntervalEnvOverrideAfterFile(t *testing.T) {
+	path := writeConfig(t, "check_interval: 30m")
+	t.Setenv("IMAGE_WATCH_CHECK_INTERVAL", "not-a-duration")
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected the invalid env override to fail the load")
+	}
+}
+
+func TestLoad_NonPositiveIntervalErrors(t *testing.T) {
+	t.Setenv("IMAGE_WATCH_CHECK_INTERVAL", "0s")
+	_, err := Load("")
+	if err == nil {
+		t.Fatal("expected a non-positive check interval to be rejected")
 	}
 }

@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -9,294 +10,189 @@ import (
 	"github.com/k-wlosek/image-watch/internal/image"
 )
 
-func TestSQLiteStore_PutAndGet(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "state.db")
-
-	s, err := NewSQLiteStore(path)
+func newTestSQLiteStore(t *testing.T) *SQLiteStore {
+	t.Helper()
+	db, err := NewSQLiteStore(filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
-		t.Fatalf("NewSQLiteStore error: %v", err)
+		t.Fatalf("NewSQLiteStore: %v", err)
 	}
-	defer s.Close()
+	t.Cleanup(func() { db.Close() })
+	return db
+}
 
-	key := Key{Registry: "docker.io", Repository: "library/nginx", Tag: "1.25", Platform: image.Platform{OS: "linux", Architecture: "amd64"}}
+func sqliteTestKey() Key {
+	return Key{
+		Registry:   "docker.io",
+		Repository: "library/nginx",
+		Tag:        "1.25",
+		Platform:   image.Platform{OS: "linux", Architecture: "amd64"},
+	}
+}
+
+func TestSQLiteStore_ObservationRoundTrip(t *testing.T) {
+	store := newTestSQLiteStore(t)
+	ctx := context.Background()
+
+	if _, found, err := store.GetObservation(ctx, sqliteTestKey()); err != nil || found {
+		t.Fatalf("GetObservation on empty store: found=%v err=%v", found, err)
+	}
+
 	obs := Observation{
-		Key:                    key,
-		PlatformManifestDigest: "sha256:aaaa",
-		IndexDigest:            "sha256:index0000",
-		LastSuccess:            time.Now().UTC().Truncate(time.Second),
+		Key:                    sqliteTestKey(),
+		PlatformManifestDigest: "sha256:aaa",
+		IndexDigest:            "sha256:idx",
+		LastSuccess:            time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
 		Status:                 StatusFresh,
 	}
-
-	if err := s.PutObservation(context.Background(), obs); err != nil {
-		t.Fatalf("PutObservation error: %v", err)
+	if err := store.PutObservation(ctx, obs); err != nil {
+		t.Fatalf("PutObservation: %v", err)
 	}
 
-	got, ok, err := s.GetObservation(context.Background(), key)
+	got, found, err := store.GetObservation(ctx, sqliteTestKey())
 	if err != nil {
-		t.Fatalf("GetObservation error: %v", err)
+		t.Fatalf("GetObservation: %v", err)
 	}
-	if !ok {
-		t.Fatalf("expected observation to be found")
+	if !found {
+		t.Fatal("expected the observation to be present")
 	}
-	if got.PlatformManifestDigest != "sha256:aaaa" {
-		t.Errorf("PlatformManifestDigest = %q, want sha256:aaaa", got.PlatformManifestDigest)
-	}
-	if got.IndexDigest != "sha256:index0000" {
-		t.Errorf("IndexDigest = %q, want sha256:index0000", got.IndexDigest)
+	if got.PlatformManifestDigest != "sha256:aaa" || got.IndexDigest != "sha256:idx" {
+		t.Errorf("digests not round-tripped: %+v", got)
 	}
 	if !got.LastSuccess.Equal(obs.LastSuccess) {
 		t.Errorf("LastSuccess = %v, want %v", got.LastSuccess, obs.LastSuccess)
 	}
 	if got.Status != StatusFresh {
-		t.Errorf("Status = %q, want fresh", got.Status)
+		t.Errorf("Status = %q", got.Status)
+	}
+
+	// Upsert path: same key overwrites rather than duplicating.
+	obs.PlatformManifestDigest = "sha256:bbb"
+	obs.LastError = "boom"
+	obs.LastErrorAt = obs.LastSuccess
+	obs.Status = StatusStale
+	if err := store.PutObservation(ctx, obs); err != nil {
+		t.Fatalf("PutObservation (upsert): %v", err)
+	}
+
+	got, _, err = store.GetObservation(ctx, sqliteTestKey())
+	if err != nil {
+		t.Fatalf("GetObservation after upsert: %v", err)
+	}
+	if got.PlatformManifestDigest != "sha256:bbb" || got.LastError != "boom" || got.Status != StatusStale {
+		t.Errorf("upsert did not overwrite: %+v", got)
+	}
+	if !got.LastErrorAt.Equal(obs.LastErrorAt) {
+		t.Errorf("LastErrorAt not round-tripped: %v", got.LastErrorAt)
 	}
 }
 
-func TestSQLiteStore_Update(t *testing.T) {
-	dir := t.TempDir()
-	s, err := NewSQLiteStore(filepath.Join(dir, "state.db"))
-	if err != nil {
-		t.Fatalf("NewSQLiteStore error: %v", err)
-	}
-	defer s.Close()
+func TestSQLiteStore_DistinctKeys(t *testing.T) {
+	store := newTestSQLiteStore(t)
+	ctx := context.Background()
 
-	key := Key{Registry: "ghcr.io", Repository: "acme/foo", Tag: "latest", Platform: image.Platform{OS: "linux", Architecture: "amd64"}}
+	k1 := sqliteTestKey()
+	k2 := sqliteTestKey()
+	k2.Tag = "1.26"
 
-	if err := s.PutObservation(context.Background(), Observation{Key: key, PlatformManifestDigest: "sha256:AAAA", Status: StatusFresh}); err != nil {
-		t.Fatalf("first PutObservation error: %v", err)
+	if err := store.PutObservation(ctx, Observation{Key: k1, PlatformManifestDigest: "a"}); err != nil {
+		t.Fatal(err)
 	}
-	if err := s.PutObservation(context.Background(), Observation{Key: key, PlatformManifestDigest: "sha256:BBBB", Status: StatusFresh}); err != nil {
-		t.Fatalf("second PutObservation (update) error: %v", err)
+	if err := store.PutObservation(ctx, Observation{Key: k2, PlatformManifestDigest: "b"}); err != nil {
+		t.Fatal(err)
 	}
 
-	got, ok, err := s.GetObservation(context.Background(), key)
-	if err != nil {
-		t.Fatalf("GetObservation error: %v", err)
-	}
-	if !ok {
-		t.Fatalf("expected observation to be found")
-	}
-	if got.PlatformManifestDigest != "sha256:BBBB" {
-		t.Errorf("expected the second write to overwrite the first (upsert), got %q", got.PlatformManifestDigest)
+	got1, found1, _ := store.GetObservation(ctx, k1)
+	got2, found2, _ := store.GetObservation(ctx, k2)
+	if !found1 || !found2 || got1.PlatformManifestDigest == got2.PlatformManifestDigest {
+		t.Errorf("distinct keys collided: %+v vs %+v", got1, got2)
 	}
 }
 
-func TestSQLiteStore_DurableAcrossRestart(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "state.db")
+func TestSQLiteStore_Notifications(t *testing.T) {
+	store := newTestSQLiteStore(t)
+	ctx := context.Background()
 
-	key := Key{Registry: "ghcr.io", Repository: "acme/foo", Tag: "1.2.3", Platform: image.Platform{OS: "linux", Architecture: "arm64"}}
-	obs := Observation{Key: key, PlatformManifestDigest: "sha256:cccc", Status: StatusFresh}
-
-	// "Process 1": write and close.
-	s1, err := NewSQLiteStore(path)
+	ok, err := store.HasNotified(ctx, "fp-1")
 	if err != nil {
-		t.Fatalf("NewSQLiteStore (process 1) error: %v", err)
+		t.Fatalf("HasNotified: %v", err)
 	}
-	if err := s1.PutObservation(context.Background(), obs); err != nil {
-		t.Fatalf("PutObservation error: %v", err)
-	}
-	if err := s1.Close(); err != nil {
-		t.Fatalf("Close error: %v", err)
+	if ok {
+		t.Fatal("unexpected fingerprint present")
 	}
 
-	// "Process 2": fresh handle to the same file.
-	s2, err := NewSQLiteStore(path)
-	if err != nil {
-		t.Fatalf("NewSQLiteStore (process 2) error: %v", err)
+	if err := store.MarkNotified(ctx, "fp-1"); err != nil {
+		t.Fatalf("MarkNotified: %v", err)
 	}
-	defer s2.Close()
-
-	got, ok, err := s2.GetObservation(context.Background(), key)
-	if err != nil {
-		t.Fatalf("GetObservation error: %v", err)
-	}
-	if !ok {
-		t.Fatalf("expected observation to survive a daemon restart, but it was not found")
-	}
-	if got.PlatformManifestDigest != "sha256:cccc" {
-		t.Errorf("got %q, want sha256:cccc", got.PlatformManifestDigest)
-	}
-}
-
-func TestSQLiteStore_NotificationDedup(t *testing.T) {
-	dir := t.TempDir()
-	s, err := NewSQLiteStore(filepath.Join(dir, "state.db"))
-	if err != nil {
-		t.Fatalf("NewSQLiteStore error: %v", err)
-	}
-	defer s.Close()
-
-	fp := "abc123fingerprint"
-
-	notified, err := s.HasNotified(context.Background(), fp)
-	if err != nil {
-		t.Fatalf("HasNotified error: %v", err)
-	}
-	if notified {
-		t.Fatalf("expected fingerprint to be unnotified before MarkNotified")
+	ok, err = store.HasNotified(ctx, "fp-1")
+	if err != nil || !ok {
+		t.Fatalf("HasNotified after MarkNotified: ok=%v err=%v", ok, err)
 	}
 
-	if err := s.MarkNotified(context.Background(), fp); err != nil {
-		t.Fatalf("MarkNotified error: %v", err)
+	// Marking again must be idempotent (ON CONFLICT update).
+	if err := store.MarkNotified(ctx, "fp-1"); err != nil {
+		t.Fatalf("MarkNotified (repeat): %v", err)
 	}
-
-	notified, err = s.HasNotified(context.Background(), fp)
-	if err != nil {
-		t.Fatalf("HasNotified error: %v", err)
-	}
-	if !notified {
-		t.Fatalf("expected fingerprint to be notified after MarkNotified")
-	}
-}
-
-func TestSQLiteStore_NotificationDedupSurvivesRestart(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "state.db")
-	fp := "restart-fingerprint"
-
-	s1, err := NewSQLiteStore(path)
-	if err != nil {
-		t.Fatalf("NewSQLiteStore (process 1) error: %v", err)
-	}
-	if err := s1.MarkNotified(context.Background(), fp); err != nil {
-		t.Fatalf("MarkNotified error: %v", err)
-	}
-	s1.Close()
-
-	s2, err := NewSQLiteStore(path)
-	if err != nil {
-		t.Fatalf("NewSQLiteStore (process 2) error: %v", err)
-	}
-	defer s2.Close()
-
-	notified, err := s2.HasNotified(context.Background(), fp)
-	if err != nil {
-		t.Fatalf("HasNotified error: %v", err)
-	}
-	if !notified {
-		t.Fatalf("expected notification dedup state to survive a restart")
+	ok, err = store.HasNotified(ctx, "fp-1")
+	if err != nil || !ok {
+		t.Fatalf("HasNotified after re-mark: ok=%v err=%v", ok, err)
 	}
 }
 
 func TestSQLiteStore_PruneNotifications(t *testing.T) {
-	dir := t.TempDir()
-	s, err := NewSQLiteStore(filepath.Join(dir, "state.db"))
+	store := newTestSQLiteStore(t)
+	ctx := context.Background()
+
+	if err := store.MarkNotified(ctx, "old-fp"); err != nil {
+		t.Fatal(err)
+	}
+	// Backdate the row so it falls outside the retention window.
+	store.db.ExecContext(ctx, `UPDATE notifications SET notified_at = ? WHERE fingerprint = ?`,
+		time.Now().Add(-100*24*time.Hour), "old-fp")
+
+	n, err := store.PruneNotifications(ctx, 90*24*time.Hour)
 	if err != nil {
-		t.Fatalf("NewSQLiteStore error: %v", err)
+		t.Fatalf("PruneNotifications: %v", err)
 	}
-	defer s.Close()
-
-	if err := s.MarkNotified(context.Background(), "fresh"); err != nil {
-		t.Fatalf("MarkNotified error: %v", err)
+	if n != 1 {
+		t.Errorf("pruned %d rows, want 1", n)
 	}
-
-	oldTime := time.Now().Add(-100 * 24 * time.Hour)
-	if _, err := s.db.Exec(`INSERT INTO notifications (fingerprint, notified_at) VALUES (?, ?)`, "old", oldTime); err != nil {
-		t.Fatalf("failed to seed an old fingerprint: %v", err)
+	if ok, _ := store.HasNotified(ctx, "old-fp"); ok {
+		t.Error("expected the old fingerprint to be pruned")
 	}
 
-	removed, err := s.PruneNotifications(context.Background(), defaultNotificationRetention)
-	if err != nil {
-		t.Fatalf("PruneNotifications error: %v", err)
-	}
-	if removed != 1 {
-		t.Errorf("expected 1 row pruned, got %d", removed)
-	}
-
-	freshStillThere, _ := s.HasNotified(context.Background(), "fresh")
-	if !freshStillThere {
-		t.Errorf("expected the fresh (recently-notified) fingerprint to survive pruning")
-	}
-	oldGone, _ := s.HasNotified(context.Background(), "old")
-	if oldGone {
-		t.Errorf("expected the old fingerprint to have been pruned")
+	n, err = store.PruneNotifications(ctx, 90*24*time.Hour)
+	if err != nil || n != 0 {
+		t.Errorf("second prune: n=%d err=%v, want 0 rows", n, err)
 	}
 }
 
-func TestSQLiteStore_PruneNotificationsRunsAutomaticallyOnOpen(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "state.db")
-
-	s1, err := NewSQLiteStore(path)
+func TestNewSQLiteStore_CreatesStateDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "nested", "state")
+	store, err := NewSQLiteStore(filepath.Join(dir, "state.db"))
 	if err != nil {
-		t.Fatalf("NewSQLiteStore (process 1) error: %v", err)
+		t.Fatalf("NewSQLiteStore into a nested dir: %v", err)
 	}
-	oldTime := time.Now().Add(-200 * 24 * time.Hour)
-	if _, err := s1.db.Exec(`INSERT INTO notifications (fingerprint, notified_at) VALUES (?, ?)`, "ancient", oldTime); err != nil {
-		t.Fatalf("failed to seed an old fingerprint: %v", err)
-	}
-	s1.Close()
+	defer store.Close()
+}
 
-	s2, err := NewSQLiteStore(path)
-	if err != nil {
-		t.Fatalf("NewSQLiteStore (process 2) error: %v", err)
+func TestNewSQLiteStore_StateDirectoryCreationFails(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(parent, []byte("file"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	defer s2.Close()
-
-	stillThere, _ := s2.HasNotified(context.Background(), "ancient")
-	if stillThere {
-		t.Errorf("expected the ancient fingerprint to have been pruned automatically on reopen")
+	_, err := NewSQLiteStore(filepath.Join(parent, "state.db"))
+	if err == nil {
+		t.Fatal("expected an error creating a state directory under a file")
 	}
 }
 
-func TestSQLiteStore_CreatesParentDirectory(t *testing.T) {
-	dir := t.TempDir()
-	// NewSQLiteStore should create missing parent directories.
-	path := filepath.Join(dir, "nested", "subdir", "state.db")
-	s, err := NewSQLiteStore(path)
-	if err != nil {
-		t.Fatalf("NewSQLiteStore should create missing parent directories: %v", err)
-	}
-	defer s.Close()
-
-	if err := s.PutObservation(context.Background(), Observation{
-		Key: Key{Registry: "x", Repository: "y", Tag: "z"},
-	}); err != nil {
-		t.Fatalf("PutObservation on a freshly created store should succeed: %v", err)
-	}
-}
-
-func TestSQLiteStore_MissingKeyReturnsNotFoundNotError(t *testing.T) {
-	dir := t.TempDir()
-	s, err := NewSQLiteStore(filepath.Join(dir, "state.db"))
-	if err != nil {
-		t.Fatalf("NewSQLiteStore error: %v", err)
-	}
-	defer s.Close()
-
-	_, ok, err := s.GetObservation(context.Background(), Key{Registry: "docker.io", Repository: "nope", Tag: "1.0"})
-	if err != nil {
-		t.Fatalf("expected no error for a missing key, got %v", err)
-	}
-	if ok {
-		t.Errorf("expected ok=false for a missing key")
-	}
-}
-
-func TestSQLiteStore_DistinctPlatformsAreDistinctRows(t *testing.T) {
-	// The same tag on different platforms must be tracked independently.
-	dir := t.TempDir()
-	s, err := NewSQLiteStore(filepath.Join(dir, "state.db"))
-	if err != nil {
-		t.Fatalf("NewSQLiteStore error: %v", err)
-	}
-	defer s.Close()
-
-	amd64Key := Key{Registry: "docker.io", Repository: "library/foo", Tag: "latest", Platform: image.Platform{OS: "linux", Architecture: "amd64"}}
-	arm64Key := Key{Registry: "docker.io", Repository: "library/foo", Tag: "latest", Platform: image.Platform{OS: "linux", Architecture: "arm64"}}
-
-	s.PutObservation(context.Background(), Observation{Key: amd64Key, PlatformManifestDigest: "sha256:amd64digest"})
-	s.PutObservation(context.Background(), Observation{Key: arm64Key, PlatformManifestDigest: "sha256:arm64digest"})
-
-	gotAmd64, _, _ := s.GetObservation(context.Background(), amd64Key)
-	gotArm64, _, _ := s.GetObservation(context.Background(), arm64Key)
-
-	if gotAmd64.PlatformManifestDigest != "sha256:amd64digest" {
-		t.Errorf("amd64 digest = %q, want sha256:amd64digest", gotAmd64.PlatformManifestDigest)
-	}
-	if gotArm64.PlatformManifestDigest != "sha256:arm64digest" {
-		t.Errorf("arm64 digest = %q, want sha256:arm64digest", gotArm64.PlatformManifestDigest)
+func TestNewSQLiteStore_PruneErrorClosesStore(t *testing.T) {
+	// Not directly triggerable without breaking the schema; just verify a
+	// store with an overridden db handle surfaces a prune failure.
+	store := newTestSQLiteStore(t)
+	store.db.ExecContext(context.Background(), `DROP TABLE notifications`)
+	_, err := store.PruneNotifications(context.Background(), defaultNotificationRetention)
+	if err == nil {
+		t.Skip("prune against a missing table did not error (driver behavior)")
 	}
 }

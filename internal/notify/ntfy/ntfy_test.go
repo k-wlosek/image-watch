@@ -85,3 +85,53 @@ func TestNotify_EmptyNotificationSendsNothing(t *testing.T) {
 		t.Errorf("expected no HTTP request for an empty notification")
 	}
 }
+
+func TestNotify_BasicAuthSetWhenConfigured(t *testing.T) {
+	var gotAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	n := New(Config{ServerURL: srv.URL, Topic: "t", Username: "u", Password: "p"}, srv.Client())
+	if err := n.Notify(context.Background(), notify.Notification{Items: []notify.Item{{Image: "a"}}}); err != nil {
+		t.Fatalf("Notify error: %v", err)
+	}
+	if !strings.HasPrefix(gotAuth, "Basic ") {
+		t.Errorf("expected Basic authorization, got %q", gotAuth)
+	}
+}
+
+func TestNotify_RequestBuildFailure(t *testing.T) {
+	n := New(Config{ServerURL: "http://exa mple", Topic: "t"}, &http.Client{})
+	err := n.Notify(context.Background(), notify.Notification{Items: []notify.Item{{Image: "a"}}})
+	if err == nil {
+		t.Fatal("expected a request-build error")
+	}
+}
+
+func TestNotify_NonSuccessStatusIsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	n := New(Config{ServerURL: srv.URL, Topic: "t"}, srv.Client())
+	err := n.Notify(context.Background(), notify.Notification{Items: []notify.Item{{Image: "a"}}})
+	if err == nil || !strings.Contains(err.Error(), "403") {
+		t.Fatalf("expected a 403 error, got %v", err)
+	}
+}
+
+func TestNotify_RequestFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	url := srv.URL
+	srv.Close()
+
+	n := New(Config{ServerURL: url, Topic: "t"}, &http.Client{})
+	err := n.Notify(context.Background(), notify.Notification{Items: []notify.Item{{Image: "a"}}})
+	if err == nil {
+		t.Fatal("expected a request failure against a closed server")
+	}
+}

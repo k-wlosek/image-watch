@@ -223,3 +223,27 @@ func TestListContainers_DaemonUnreachable(t *testing.T) {
 		t.Errorf("expected Unavailable=true for connection failure, got false")
 	}
 }
+
+func TestNew_EndpointVariants(t *testing.T) {
+	for _, endpoint := range []string{"", "unix:///var/run/docker.sock", "tcp://127.0.0.1:2375", "http://127.0.0.1:2375", "https://docker.example.com"} {
+		c, err := New(endpoint)
+		if err != nil {
+			t.Errorf("New(%q) error: %v", endpoint, err)
+		}
+		if c == nil {
+			t.Errorf("New(%q) returned a nil client", endpoint)
+		}
+	}
+}
+
+func TestNew_UnsupportedScheme(t *testing.T) {
+	if _, err := New("ftp://example.com/repo"); err == nil {
+		t.Errorf("expected an error for an unsupported scheme")
+	}
+}
+
+func TestNew_InvalidURL(t *testing.T) {
+	if _, err := New("tcp://host:badport"); err == nil {
+		t.Errorf("expected an error for an invalid endpoint URL")
+	}
+}
