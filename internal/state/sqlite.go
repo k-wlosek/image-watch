@@ -59,17 +59,17 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 	db.SetMaxOpenConns(1)
 
 	if _, err := db.Exec(createObservationsTable); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("state: failed to initialize observations schema: %w", err)
 	}
 	if _, err := db.Exec(createNotificationsTable); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("state: failed to initialize notifications schema: %w", err)
 	}
 
 	s := &SQLiteStore{db: db}
 	if _, err := s.PruneNotifications(context.Background(), defaultNotificationRetention); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("state: failed to prune old notification records: %w", err)
 	}
 

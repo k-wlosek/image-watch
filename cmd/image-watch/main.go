@@ -60,7 +60,7 @@ func runDaemon() {
 		os.Exit(1)
 	}
 	if closer, ok := obs.Store.(interface{ Close() error }); ok {
-		defer closer.Close()
+		defer func() { _ = closer.Close() }()
 	}
 
 	notifiers := buildNotifiers(cfg)
@@ -119,7 +119,7 @@ func runCheck() {
 		os.Exit(1)
 	}
 	if closer, ok := obs.Store.(interface{ Close() error }); ok {
-		defer closer.Close()
+		defer func() { _ = closer.Close() }()
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -218,7 +218,7 @@ func runHealthcheck() int {
 		fmt.Fprintln(os.Stderr, "healthcheck: request failed:", err)
 		return 1
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		fmt.Fprintln(os.Stderr, "healthcheck: unhealthy status", resp.StatusCode)
 		return 1

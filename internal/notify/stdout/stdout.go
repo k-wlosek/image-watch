@@ -34,30 +34,52 @@ func (n *Notifier) Notify(_ context.Context, note notify.Notification) error {
 		return nil
 	}
 
-	fmt.Fprintf(w, "Image Watch - %d update(s)\n\n", len(note.Items))
+	if _, err := fmt.Fprintf(w, "Image Watch - %d update(s)\n\n", len(note.Items)); err != nil {
+		return err
+	}
 	for _, item := range note.Items {
-		fmt.Fprintln(w, categoryLabel(item.Type))
+		if _, err := fmt.Fprintln(w, categoryLabel(item.Type)); err != nil {
+			return err
+		}
 		switch item.Type {
 		case event.TagChanged, event.TagMutated:
-			fmt.Fprintf(w, "  %s:%s\n", item.Image, item.CurrentTag)
-			fmt.Fprintf(w, "  %s -> %s", item.CurrentDigest, item.CandidateDigest)
-			if item.CandidateTag != "" {
-				fmt.Fprintf(w, " (inferred version: %s)", item.CandidateTag)
+			if _, err := fmt.Fprintf(w, "  %s:%s\n", item.Image, item.CurrentTag); err != nil {
+				return err
 			}
-			fmt.Fprintln(w)
+			if _, err := fmt.Fprintf(w, "  %s -> %s", item.CurrentDigest, item.CandidateDigest); err != nil {
+				return err
+			}
+			if item.CandidateTag != "" {
+				if _, err := fmt.Fprintf(w, " (inferred version: %s)", item.CandidateTag); err != nil {
+					return err
+				}
+			}
+			if _, err := fmt.Fprintln(w); err != nil {
+				return err
+			}
 		default:
-			fmt.Fprintf(w, "  %s:%s -> %s\n", item.Image, item.CurrentTag, item.CandidateTag)
+			if _, err := fmt.Fprintf(w, "  %s:%s -> %s\n", item.Image, item.CurrentTag, item.CandidateTag); err != nil {
+				return err
+			}
 			if item.CombinedCandidate != "" {
-				fmt.Fprintf(w, "  combined: %s\n", item.CombinedCandidate)
+				if _, err := fmt.Fprintf(w, "  combined: %s\n", item.CombinedCandidate); err != nil {
+					return err
+				}
 			}
 		}
 		if len(item.ContainerNames) > 0 {
-			fmt.Fprintf(w, "  containers: %v\n", item.ContainerNames)
+			if _, err := fmt.Fprintf(w, "  containers: %v\n", item.ContainerNames); err != nil {
+				return err
+			}
 		}
 		if len(item.Suppressed) > 0 {
-			fmt.Fprintf(w, "  suppressed: %v\n", item.Suppressed)
+			if _, err := fmt.Fprintf(w, "  suppressed: %v\n", item.Suppressed); err != nil {
+				return err
+			}
 		}
-		fmt.Fprintln(w)
+		if _, err := fmt.Fprintln(w); err != nil {
+			return err
+		}
 	}
 	return nil
 }

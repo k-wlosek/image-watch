@@ -150,7 +150,7 @@ func (a *authenticator) tokenFor(ctx context.Context, registryHost string, c cha
 	if err != nil {
 		return "", newError(ErrClassNetwork, "", "token request failed", 0, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 		return "", newError(classifyStatus(resp.StatusCode), "", "authentication rejected during token exchange", resp.StatusCode, nil)

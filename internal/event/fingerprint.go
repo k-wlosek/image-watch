@@ -9,7 +9,7 @@ import (
 // Fingerprint computes the notification deduplication identity for an event.
 func Fingerprint(e Event) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "%s|%s|%s|%s|%s|%s|%s|%s",
+	_, _ = fmt.Fprintf(h, "%s|%s|%s|%s|%s|%s|%s|%s",
 		e.Image.Registry,
 		e.Image.Repository,
 		e.CurrentTag,

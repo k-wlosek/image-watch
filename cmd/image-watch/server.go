@@ -12,7 +12,7 @@ func newHTTPServer(listen string, m *metrics.Metrics) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok\n"))
+		_, _ = w.Write([]byte("ok\n"))
 	})
 	if m != nil {
 		mux.Handle("/metrics", m.Handler())

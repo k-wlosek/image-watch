@@ -274,7 +274,7 @@ func (h *Client) doAuthenticatedGETInner(ctx context.Context, repository, action
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		wwwAuth := resp.Header.Get("WWW-Authenticate")
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		c, ok := parseBearerChallenge(wwwAuth)
 		if !ok {
@@ -300,7 +300,7 @@ func (h *Client) doAuthenticatedGETInner(ctx context.Context, repository, action
 		if err != nil {
 			return nil, nil, newError(ErrClassNetwork, repository, "request failed after authentication", 0, err)
 		}
-		defer resp2.Body.Close()
+		defer func() { _ = resp2.Body.Close() }()
 
 		if resp2.StatusCode == http.StatusUnauthorized {
 			// Cached token was rejected.
@@ -310,7 +310,7 @@ func (h *Client) doAuthenticatedGETInner(ctx context.Context, repository, action
 		return readBody(resp2, repository)
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return readBody(resp, repository)
 }
 

@@ -21,11 +21,10 @@ image-watch does not pull, stop, or restart containers.
 | `TAG_MUTATED`                  | a fixed-looking tag was re-pushed to a different digest | `redis:7.2 → 7.2`                       |
 | `OTHER_PLATFORM_UPDATE`        | a newer release exists, but only for another platform   | `server:1.2.3 → 1.2.4 (linux/386 only)` |
 
-Examples are illustrative. In a composite tag the application, base, and
-combined candidates are evaluated separately; when both advance, the combined
-candidate (`1.2.4-alpine3.23`) is also reported. For `TAG_CHANGED`, image-watch
-resolves what release the moved tag now serves (newest-first, bounded by
-`enrichment.max_tags`) and uses it as the candidate.
+In a composite tag the application, base, and combined candidates are evaluated 
+separately; when both advance, the combined candidate (`1.2.4-alpine3.23`) 
+is also reported. For `TAG_CHANGED`, image-watch resolves what release the moved
+tag now serves (newest-first, bounded by `enrichment.max_tags`) and uses it as the candidate.
 
 ## Quick start
 
@@ -286,6 +285,10 @@ make test
 make test-live    # live tests - against Docker Hub and a real Docker daemon
 make image        # builds the docker image
 ./scripts/test-smoke.sh  # runs a full end-to-end check against a real Docker daemon
+
+# coverage report
+go test -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out
 ```
 
 ## Not implemented yet
