@@ -14,7 +14,7 @@ on:
 
 jobs:
   govulncheck:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-slim
     permissions:
       contents: read # same as global permissions
       security-events: write # required to write sarif report
@@ -36,7 +36,7 @@ jobs:
           sarif_file: govulncheck.sarif
 
   coverage:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-slim
     permissions:
       contents: read # same as global permissions
     steps:
