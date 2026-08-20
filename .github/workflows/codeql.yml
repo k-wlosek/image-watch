@@ -16,7 +16,6 @@ on:
 
 jobs:
   codeql:
-    if: github.event.repository.public
     runs-on: ubuntu-24.04
     permissions:
       contents: read
