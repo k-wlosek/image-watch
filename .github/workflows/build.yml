@@ -50,7 +50,7 @@ jobs:
           file: Dockerfile
           platforms: ${{ env.PLATFORMS }}
           sbom: true
-          provenance: mode=max,format=spdx-json
+          provenance: mode=max
           push: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
