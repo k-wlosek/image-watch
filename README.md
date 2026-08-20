@@ -1,6 +1,6 @@
 # image-watch
 
-[![codecov](https://codecov.io/gh/k-wlosek/image-watch/branch/main/graph/badge.svg)](https://codecov.io/gh/k-wlosek/image-watch)
+[![codecov](https://codecov.io/github/k-wlosek/image-watch/graph/badge.svg?token=GIO95DOJB3)](https://codecov.io/github/k-wlosek/image-watch)
 
 image-watch is a read-only daemon that monitors the containers running on a
 host. When an image a container uses changes upstream, it notifies about the

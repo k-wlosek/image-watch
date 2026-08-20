@@ -30,6 +30,7 @@ jobs:
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 -format sarif ./... > govulncheck.sarif
         continue-on-error: true
       - name: Upload SARIF report
+        if: github.event.repository.public
         uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           sarif_file: govulncheck.sarif
