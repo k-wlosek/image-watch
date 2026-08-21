@@ -140,6 +140,10 @@ func mergeRaw(cfg Config, raw rawConfig) (Config, error) {
 		}
 		if raw.Runtime.Endpoint != "" {
 			cfg.Runtime.Endpoint = raw.Runtime.Endpoint
+		} else {
+			// No explicit endpoint: align it to the conventional socket
+			// for the resolved runtime type.
+			cfg.Runtime.Endpoint = DefaultEndpoint(cfg.Runtime.Type)
 		}
 	}
 
@@ -260,6 +264,11 @@ func applyEnvOverrides(cfg Config) (Config, error) {
 	}
 	if v := os.Getenv("IMAGE_WATCH_RUNTIME_TYPE"); v != "" {
 		cfg.Runtime.Type = v
+		// Without an explicit endpoint override, assume the socket for
+		// the selected runtime.
+		if os.Getenv("IMAGE_WATCH_RUNTIME_ENDPOINT") == "" {
+			cfg.Runtime.Endpoint = DefaultEndpoint(v)
+		}
 	}
 	if v := os.Getenv("IMAGE_WATCH_RUNTIME_ENDPOINT"); v != "" {
 		cfg.Runtime.Endpoint = v
@@ -272,8 +281,12 @@ func applyEnvOverrides(cfg Config) (Config, error) {
 
 // validate performs minimal sanity checks.
 func validate(cfg Config) error {
-	if cfg.Runtime.Type != "docker" {
-		return fmt.Errorf("unsupported runtime.type %q (v1 supports only \"docker\")", cfg.Runtime.Type)
+	switch cfg.Runtime.Type {
+	case "docker", "podman":
+		// Podman and Docker both suppport the API surface we care about,
+		// so we can treat them the same way.
+	default:
+		return fmt.Errorf("unsupported runtime.type %q (v1 supports \"docker\" or \"podman\")", cfg.Runtime.Type)
 	}
 	if cfg.CheckInterval <= 0 {
 		return fmt.Errorf("check_interval must be positive, got %s", cfg.CheckInterval)

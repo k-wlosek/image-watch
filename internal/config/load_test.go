@@ -169,11 +169,70 @@ func TestLoad_InvalidDurationErrors(t *testing.T) {
 func TestLoad_InvalidRuntimeTypeErrors(t *testing.T) {
 	path := writeConfig(t, `
 runtime:
-  type: podman
+  type: containerd
 `)
 	_, err := Load(path)
 	if err == nil {
-		t.Fatal("expected an error for an unsupported runtime type (v1 supports only docker)")
+		t.Fatal("expected an error for an unsupported runtime type")
+	}
+}
+
+func TestLoad_PodmanRuntimeTypeAccepted(t *testing.T) {
+	path := writeConfig(t, `
+runtime:
+  type: podman
+  endpoint: unix:///run/podman/podman.sock
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Runtime.Type != "podman" {
+		t.Errorf("Runtime.Type = %q, want podman", cfg.Runtime.Type)
+	}
+	if cfg.Runtime.Endpoint != "unix:///run/podman/podman.sock" {
+		t.Errorf("Runtime.Endpoint = %q, want the podman socket", cfg.Runtime.Endpoint)
+	}
+}
+
+func TestLoad_PodmanTypeDefaultsEndpoint(t *testing.T) {
+	path := writeConfig(t, `
+runtime:
+  type: podman
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if want := "unix:///run/podman/podman.sock"; cfg.Runtime.Endpoint != want {
+		t.Errorf("Runtime.Endpoint = %q, want podman default %q", cfg.Runtime.Endpoint, want)
+	}
+}
+
+func TestApplyEnvOverrides_PodmanRuntimeType(t *testing.T) {
+	t.Setenv("IMAGE_WATCH_RUNTIME_TYPE", "podman")
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Runtime.Type != "podman" {
+		t.Errorf("Runtime.Type = %q, want podman (from env override)", cfg.Runtime.Type)
+	}
+	if want := "unix:///run/podman/podman.sock"; cfg.Runtime.Endpoint != want {
+		t.Errorf("Runtime.Endpoint = %q, want %q (podman default socket)", cfg.Runtime.Endpoint, want)
+	}
+}
+
+func TestNoEnvOverride_ImplicitEndpoint(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if cfg.Runtime.Type != "docker" {
+		t.Errorf("Runtime.Type = %q, want docker (default)", cfg.Runtime.Type)
+	}
+	if want := "unix:///var/run/docker.sock"; cfg.Runtime.Endpoint != want {
+		t.Errorf("Runtime.Endpoint = %q, want %q (docker default socket)", cfg.Runtime.Endpoint, want)
 	}
 }
 
@@ -293,7 +352,7 @@ func TestApplyEnvOverrides_InvalidValueErrors(t *testing.T) {
 }
 
 func TestLoad_NoFileStillValidates(t *testing.T) {
-	t.Setenv("IMAGE_WATCH_RUNTIME_TYPE", "podman") // unsupported runtime type
+	t.Setenv("IMAGE_WATCH_RUNTIME_TYPE", "kubernetes") // unsupported runtime type
 	_, err := Load("")
 	if err == nil {
 		t.Fatal("expected Load(\"\") with no config file to still validate the final config and reject an unsupported runtime type")

@@ -123,12 +123,23 @@ type RegistryAuthConfig struct {
 	CAFile string
 }
 
+// DefaultEndpoint returns the conventional socket for the given runtime type.
+func DefaultEndpoint(runtimeType string) string {
+	switch runtimeType {
+	case "podman":
+		return "unix:///run/podman/podman.sock"
+	default:
+		return "unix:///var/run/docker.sock"
+	}
+}
+
 // Default returns the built-in configuration defaults.
 func Default() Config {
+	t := "docker"
 	return Config{
 		Runtime: RuntimeConfig{
-			Type:     "docker",
-			Endpoint: "unix:///var/run/docker.sock",
+			Type:     t,
+			Endpoint: DefaultEndpoint(t),
 		},
 		CheckInterval: 6 * time.Hour,
 		Policy:        policy.Default(),

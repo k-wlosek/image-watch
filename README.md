@@ -48,6 +48,24 @@ docker run -d --name image-watch \
 
 Or check the compose file in [`deploy/docker/compose.yaml`](deploy/docker/compose.yaml) and run it with `docker compose up -d`.
 
+### Podman
+
+Similar as [Docker](#docker), but with the Podman socket mounted instead.
+
+Setting `runtime.type` to `podman` will default to `unix:///run/podman/podman.sock` if no endpoint is given, but you can override it with `runtime.endpoint` in the config file or `IMAGE_WATCH_RUNTIME_ENDPOINT` environment variable.
+
+Run the published image with the socket mounted in:
+
+```bash
+docker run -d --name image-watch \
+  -v "$XDG_RUNTIME_DIR/podman/podman.sock:/run/podman/podman.sock:ro" \
+  -e IMAGE_WATCH_RUNTIME_ENDPOINT=unix:///run/podman/podman.sock \
+  -v "$PWD/config.yaml:/etc/image-watch/config.yaml:ro" \
+  -v "$PWD/data:/var/lib/image-watch" \
+  -p 127.0.0.1:9090:9090 \
+  ghcr.io/k-wlosek/image-watch:latest
+```
+
 ### Go
 
 ```bash
@@ -297,7 +315,7 @@ go tool cover -func=coverage.out
 
 ## Not implemented yet
 
-- [ ] Podman and containerd runtime adapters
+- [ ] containerd runtime adapter
 - [ ] CalVer and similar schemes (currently treated as plain SemVer, not as a calendrical scheme)
 - [ ] custom grammars for non-SemVer schemes
 - [ ] credential-helper integration for registries
