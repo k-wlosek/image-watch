@@ -161,6 +161,47 @@ func TestNotify_NonSuccessStatusIsAnError(t *testing.T) {
 	}
 }
 
+func TestNotify_HostnameInPayload(t *testing.T) {
+	var received payload
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&received)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	n := New(Config{URL: srv.URL}, srv.Client())
+	note := notify.Notification{
+		Hostname: "db-02",
+		Items:    []notify.Item{{Image: "a", Type: event.PatchAvailable, CurrentTag: "1", CandidateTag: "2"}},
+	}
+	if err := n.Notify(context.Background(), note); err != nil {
+		t.Fatalf("Notify error: %v", err)
+	}
+	if received.Hostname != "db-02" {
+		t.Errorf("Hostname = %q, want %q", received.Hostname, "db-02")
+	}
+}
+
+func TestNotify_EmptyHostnameOmitted(t *testing.T) {
+	var raw map[string]json.RawMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&raw)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	n := New(Config{URL: srv.URL}, srv.Client())
+	note := notify.Notification{Items: []notify.Item{
+		{Image: "a", Type: event.PatchAvailable, CurrentTag: "1", CandidateTag: "2"},
+	}}
+	if err := n.Notify(context.Background(), note); err != nil {
+		t.Fatalf("Notify error: %v", err)
+	}
+	if _, ok := raw["hostname"]; ok {
+		t.Errorf("expected hostname to be omitted when empty, but it was present")
+	}
+}
+
 func TestNotify_EmptyItemsSendsNothing(t *testing.T) {
 	var called bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

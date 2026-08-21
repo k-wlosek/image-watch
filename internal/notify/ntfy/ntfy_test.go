@@ -70,6 +70,48 @@ func TestNotify_NoTopicConfigured(t *testing.T) {
 	}
 }
 
+func TestNotify_HostnameInDefaultTitle(t *testing.T) {
+	var gotTitle string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTitle = r.Header.Get("Title")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	n := New(Config{ServerURL: srv.URL, Topic: "t"}, srv.Client())
+	note := notify.Notification{
+		Hostname: "db-01",
+		Items:    []notify.Item{{Image: "a", Type: event.PatchAvailable}},
+	}
+	if err := n.Notify(context.Background(), note); err != nil {
+		t.Fatalf("Notify error: %v", err)
+	}
+	if gotTitle != "Image Watch (db-01)" {
+		t.Errorf("title = %q, want 'Image Watch (db-01)'", gotTitle)
+	}
+}
+
+func TestNotify_CustomTitleOverridesHostname(t *testing.T) {
+	var gotTitle string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotTitle = r.Header.Get("Title")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	n := New(Config{ServerURL: srv.URL, Topic: "t", Title: "My Alerts"}, srv.Client())
+	note := notify.Notification{
+		Hostname: "db-01",
+		Items:    []notify.Item{{Image: "a", Type: event.PatchAvailable}},
+	}
+	if err := n.Notify(context.Background(), note); err != nil {
+		t.Fatalf("Notify error: %v", err)
+	}
+	if gotTitle != "My Alerts" {
+		t.Errorf("title = %q, want 'My Alerts' (custom title should not be overridden)", gotTitle)
+	}
+}
+
 func TestNotify_EmptyNotificationSendsNothing(t *testing.T) {
 	called := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

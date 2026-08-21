@@ -29,6 +29,8 @@ type fakeRuntimeList struct {
 
 func (f *fakeRuntimeList) Name() string { return "fake" }
 
+func (f *fakeRuntimeList) Hostname(context.Context) (string, error) { return "fake", nil }
+
 func (f *fakeRuntimeList) ListContainers(context.Context) ([]iwruntime.ContainerObservation, error) {
 	return f.containers, f.err
 }

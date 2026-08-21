@@ -74,6 +74,20 @@ func newWithHTTPClient(httpClient *http.Client, baseURL string) *Client {
 
 func (c *Client) Name() string { return "docker" }
 
+func (c *Client) Hostname(ctx context.Context) (string, error) {
+	clientInfo, err := c.get(ctx, "/info")
+	if err != nil {
+		return "", err
+	}
+	var info struct {
+		Name string `json:"Name"`
+	}
+	if err := json.Unmarshal(clientInfo, &info); err != nil {
+		return "", fmt.Errorf("docker: malformed /info response: %w", err)
+	}
+	return info.Name, nil
+}
+
 // ListContainers lists all running containers and translates them into observations.
 func (c *Client) ListContainers(ctx context.Context) ([]runtime.ContainerObservation, error) {
 	containers, err := c.listContainerSummaries(ctx)

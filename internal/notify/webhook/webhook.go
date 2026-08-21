@@ -41,6 +41,7 @@ type payload struct {
 	Image      string           `json:"image"`
 	Current    string           `json:"current"`
 	Candidate  string           `json:"candidate"`
+	Hostname   string           `json:"hostname,omitempty"`
 	Platform   *platformPayload `json:"platform,omitempty"`
 	Containers []string         `json:"containers,omitempty"`
 	Suppressed []string         `json:"suppressed,omitempty"`
@@ -59,19 +60,20 @@ func (n *Notifier) Notify(ctx context.Context, note notify.Notification) error {
 
 	var errs []error
 	for _, item := range note.Items {
-		if err := n.sendOne(ctx, item); err != nil {
+		if err := n.sendOne(ctx, item, note.Hostname); err != nil {
 			errs = append(errs, fmt.Errorf("webhook: item %s/%s: %w", item.Image, item.CandidateTag, err))
 		}
 	}
 	return errors.Join(errs...)
 }
 
-func (n *Notifier) sendOne(ctx context.Context, item notify.Item) error {
+func (n *Notifier) sendOne(ctx context.Context, item notify.Item, hostname string) error {
 	p := payload{
 		Event:     string(item.Type),
 		Image:     item.Image,
 		Current:   item.CurrentTag,
 		Candidate: item.CandidateTag,
+		Hostname:  hostname,
 	}
 	if item.Platform != "" {
 		os, arch := splitPlatform(item.Platform)

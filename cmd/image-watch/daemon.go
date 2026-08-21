@@ -105,6 +105,9 @@ func (d *Daemon) runCycle(ctx context.Context) {
 
 	note := BuildNotification(ctx, results, d.Observer.Store)
 	if len(note.Items) > 0 {
+		if h, err := d.Observer.Runtime.Hostname(ctx); err == nil {
+			note.Hostname = h
+		}
 		if err := DeliverAndMark(ctx, d.Notifiers, note, d.Config.Notifications.Mode, d.Observer.Store); err != nil {
 			d.logf("notification delivery had errors: %v", err)
 			if d.Metrics != nil {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	iwruntime "github.com/k-wlosek/image-watch/internal/runtime"
@@ -212,6 +213,48 @@ func TestMatchRepoDigest(t *testing.T) {
 func TestListContainers_DaemonUnreachable(t *testing.T) {
 	c := newWithHTTPClient(&http.Client{}, "http://127.0.0.1:1") // nothing listens here
 	_, err := c.ListContainers(context.Background())
+	if err == nil {
+		t.Fatal("expected error when daemon is unreachable")
+	}
+	derr, ok := err.(*Error)
+	if !ok {
+		t.Fatalf("expected *Error, got %T: %v", err, err)
+	}
+	if !derr.Unavailable {
+		t.Errorf("expected Unavailable=true for connection failure, got false")
+	}
+}
+
+func TestHostname_Success(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/info", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"Name": "moby"})
+	})
+	c := newTestClient(t, mux)
+	got, err := c.Hostname(context.Background())
+	if err != nil {
+		t.Fatalf("Hostname error: %v", err)
+	}
+	if got != "moby" {
+		t.Errorf("Hostname() = %q, want %q", got, "moby")
+	}
+}
+
+func TestHostname_MalformedResponse(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/info", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{bad`))
+	})
+	c := newTestClient(t, mux)
+	_, err := c.Hostname(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "malformed /info") {
+		t.Fatalf("expected malformed /info error, got %v", err)
+	}
+}
+
+func TestHostname_DaemonUnreachable(t *testing.T) {
+	c := newWithHTTPClient(&http.Client{}, "http://127.0.0.1:1")
+	_, err := c.Hostname(context.Background())
 	if err == nil {
 		t.Fatal("expected error when daemon is unreachable")
 	}

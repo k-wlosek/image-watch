@@ -68,7 +68,11 @@ func (n *Notifier) Notify(ctx context.Context, note notify.Notification) error {
 
 	title := n.cfg.Title
 	if title == "" {
-		title = "Image Watch"
+		if note.Hostname != "" {
+			title = "Image Watch (" + note.Hostname + ")"
+		} else {
+			title = "Image Watch"
+		}
 	}
 	req.Header.Set("Title", title)
 	if n.cfg.Priority != "" {

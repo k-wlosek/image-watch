@@ -13,6 +13,9 @@ type Runtime interface {
 	// Name identifies the runtime implementation.
 	Name() string
 
+	// Hostname returns the hostname of the node the runtime is running on.
+	Hostname(ctx context.Context) (string, error)
+
 	// ListContainers returns an observation for every running container.
 	ListContainers(ctx context.Context) ([]ContainerObservation, error)
 }

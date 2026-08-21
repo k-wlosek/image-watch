@@ -34,8 +34,14 @@ func (n *Notifier) Notify(_ context.Context, note notify.Notification) error {
 		return nil
 	}
 
-	if _, err := fmt.Fprintf(w, "Image Watch - %d update(s)\n\n", len(note.Items)); err != nil {
-		return err
+	if note.Hostname != "" {
+		if _, err := fmt.Fprintf(w, "Image Watch (%s) - %d update(s)\n\n", note.Hostname, len(note.Items)); err != nil {
+			return err
+		}
+	} else {
+		if _, err := fmt.Fprintf(w, "Image Watch - %d update(s)\n\n", len(note.Items)); err != nil {
+			return err
+		}
 	}
 	for _, item := range note.Items {
 		if _, err := fmt.Fprintln(w, categoryLabel(item.Type)); err != nil {

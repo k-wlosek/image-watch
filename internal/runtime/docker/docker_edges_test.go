@@ -16,6 +16,21 @@ func TestClientName(t *testing.T) {
 	}
 }
 
+func TestHostname_EmptyName(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/info", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"Name": ""})
+	})
+	c := newTestClient(t, mux)
+	got, err := c.Hostname(context.Background())
+	if err != nil {
+		t.Fatalf("Hostname error: %v", err)
+	}
+	if got != "" {
+		t.Errorf("Hostname() = %q, want empty string", got)
+	}
+}
+
 func TestListContainers_UnparseableImageRefIsSkipped(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/containers/json", func(w http.ResponseWriter, r *http.Request) {

@@ -34,6 +34,7 @@ type Item struct {
 // Notification is a batch of Items ready for delivery.
 type Notification struct {
 	Timestamp time.Time
+	Hostname  string // runtime hostname, shown in notification header
 	Items     []Item
 }
 

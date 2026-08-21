@@ -125,15 +125,17 @@ JSON payload per event:
   "image": "docker.io/library/redis",
   "current": "7.2.0",
   "candidate": "7.2.4",
+  "hostname": "myhost",
   "platform": { "os": "linux", "architecture": "amd64" },
   "containers": ["redis-a", "redis-b"],
   "suppressed": ["redis-legacy"]
 }
 ```
 
-`containers` lists the running containers for which this update is relevant;
-`suppressed` lists containers whose per-container labels disallow it (see
-below). Both are omitted when empty.
+`hostname` identifies the runtime node this notification originated from
+and is omitted when unavailable. `containers` lists the running containers 
+for which this update is relevant; `suppressed` lists containers whose 
+per-container labels disallow it (see below). Both are omitted when empty.
 
 ### Private and plain-http registries
 
@@ -302,6 +304,9 @@ image-watch version       print version
 ## Development
 
 ```bash
+go fmt ./...
+go fix ./...
+golangci-lint run ./...
 make build
 make test
 make test-live    # live tests - against Docker Hub and a real Docker daemon

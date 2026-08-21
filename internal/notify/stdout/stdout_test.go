@@ -116,6 +116,39 @@ func TestNotify_NilWriterDefaultsToStdout(t *testing.T) {
 	}
 }
 
+func TestNotify_EmptyHostnamePreservesFormat(t *testing.T) {
+	var b strings.Builder
+	n := &Notifier{Writer: &b}
+	note := notify.Notification{Items: []notify.Item{
+		{Image: "docker.io/library/nginx", Type: event.PatchAvailable, CurrentTag: "1", CandidateTag: "2"},
+	}}
+	if err := n.Notify(context.Background(), note); err != nil {
+		t.Fatalf("Notify error: %v", err)
+	}
+	out := b.String()
+	if !strings.HasPrefix(out, "Image Watch - 1 update(s)") {
+		t.Errorf("expected header without hostname, got:\n%s", out)
+	}
+}
+
+func TestNotify_HostnameInHeader(t *testing.T) {
+	var b strings.Builder
+	n := &Notifier{Writer: &b}
+	note := notify.Notification{
+		Hostname: "web-server-01",
+		Items: []notify.Item{
+			{Image: "docker.io/library/nginx", Type: event.PatchAvailable, CurrentTag: "1", CandidateTag: "2"},
+		},
+	}
+	if err := n.Notify(context.Background(), note); err != nil {
+		t.Fatalf("Notify error: %v", err)
+	}
+	out := b.String()
+	if !strings.HasPrefix(out, "Image Watch (web-server-01) - 1 update(s)") {
+		t.Errorf("expected header with hostname, got:\n%s", out)
+	}
+}
+
 func TestCategoryLabel_AllTypes(t *testing.T) {
 	cases := map[event.Type]string{
 		event.PatchAvailable:             "PATCH",
