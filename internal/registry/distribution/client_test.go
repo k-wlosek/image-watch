@@ -311,7 +311,7 @@ func TestResolve_BearerTokenChallenge(t *testing.T) {
 	srv := httptest.NewTLSServer(mux)
 	defer srv.Close()
 
-	creds := func(host string) (string, string, bool) {
+	creds := func(ctx context.Context, host string) (string, string, bool) {
 		return "testuser", "testpass", true
 	}
 

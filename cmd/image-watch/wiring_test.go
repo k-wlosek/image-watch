@@ -90,7 +90,7 @@ func TestResolveEnvCredential(t *testing.T) {
 	}
 }
 
-func TestCredentialProviderFor(t *testing.T) {
+func TestBuildCredentialChain(t *testing.T) {
 	t.Setenv("IW_REG_USER", "reguser")
 	t.Setenv("IW_REG_PASS", "regpass")
 
@@ -100,12 +100,12 @@ func TestCredentialProviderFor(t *testing.T) {
 		PasswordEnv: "IW_REG_PASS",
 	}
 
-	provider := credentialProviderFor(cfg)
-	u, p, ok := provider("ghcr.io")
+	provider := buildCredentialChain(cfg)
+	u, p, ok := provider(context.Background(), "ghcr.io")
 	if !ok || u != "reguser" || p != "regpass" {
 		t.Errorf("provider(ghcr.io) = %q/%q/%v, want reguser/regpass/true", u, p, ok)
 	}
-	if _, _, ok := provider("docker.io"); ok {
+	if _, _, ok := provider(context.Background(), "docker.io"); ok {
 		t.Errorf("provider for an unknown host should not resolve credentials")
 	}
 }
@@ -261,14 +261,14 @@ func TestBuildObserver_InvalidStatePath(t *testing.T) {
 	}
 }
 
-func TestCredentialProviderFor_UnsetEnv(t *testing.T) {
+func TestBuildCredentialChain_UnsetEnv(t *testing.T) {
 	cfg := config.Default()
 	cfg.Registries["ghcr.io"] = config.RegistryAuthConfig{
 		UsernameEnv: "IW_DOES_NOT_EXIST",
 		PasswordEnv: "IW_ALSO_DOES_NOT_EXIST",
 	}
-	provider := credentialProviderFor(cfg)
-	if u, p, ok := provider("ghcr.io"); ok || u != "" || p != "" {
+	provider := buildCredentialChain(cfg)
+	if u, p, ok := provider(context.Background(), "ghcr.io"); ok || u != "" || p != "" {
 		t.Errorf("provider = %q/%q/%v, want empty/empty/false when env vars are unset", u, p, ok)
 	}
 }

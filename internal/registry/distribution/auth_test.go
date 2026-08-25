@@ -10,7 +10,7 @@ import (
 )
 
 func TestNoCredentials(t *testing.T) {
-	u, p, ok := NoCredentials("any-host")
+	u, p, ok := NoCredentials(context.Background(), "any-host")
 	if u != "" || p != "" || ok {
 		t.Errorf("NoCredentials() = %q, %q, %v; want empty,empty,false", u, p, ok)
 	}
@@ -71,7 +71,7 @@ func TestTokenFor_Flow(t *testing.T) {
 	}))
 	defer tokenSrv.Close()
 
-	creds := func(host string) (string, string, bool) { return "u", "p", true }
+	creds := func(ctx context.Context, host string) (string, string, bool) { return "u", "p", true }
 	a := newAuthenticator(http.DefaultClient, creds)
 	c := challenge{Realm: tokenSrv.URL, Service: "svc", Scope: "repository:a/b:pull"}
 

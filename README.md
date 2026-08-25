@@ -144,6 +144,38 @@ private-CA bundles (`ca_file`, replacing the system trust store for that host)
 are configured under `registries` - see the example config. Public registries
 need no configuration at all.
 
+Credentials are resolved from three sources, tried in order:
+
+1. **Environment variables** from `registries` config (highest priority).
+2. **Docker/Podman config files** (`~/.docker/config.json`, Podman's
+   `auth.json`). Set `DOCKER_CONFIG` or `REGISTRY_AUTH_FILE` to override
+   the default path. The Docker config is also checked for `credHelpers`
+   and `credsStore` entries.
+3. **Credential helpers** (`docker-credential-<helper> get`) are invoked
+   when referenced by a config file's `credHelpers` or `credsStore`.
+   This only works in images that include the helper binary (not in the
+   default `scratch` image).
+
+In the default image, only environment variables and static
+`auths` entries in config files work. Credential helpers
+(`credHelpers`/`credsStore`) require the helper binary on PATH, which
+is not present by default. To use helpers, build a custom image that
+includes the helper binary:
+
+```dockerfile
+FROM golang:1.26-alpine AS helpers
+RUN go install github.com/GoogleCloudPlatform/docker-credential-gcr@latest
+
+FROM ghcr.io/k-wlosek/image-watch:latest
+COPY --from=helpers /go/bin/docker-credential-gcr /docker-credential-gcr
+ENV PATH=/
+```
+
+The binary must follow the `docker-credential-<name>` naming convention
+and be on PATH. The `ENV PATH=/` line ensures the process finds the
+helper at `/docker-credential-gcr` when invoked. A warning is logged
+when a configured helper is not found.
+
 ### Per-container control via labels
 
 | Label                                 | Effect                                                                              |
@@ -323,5 +355,4 @@ go tool cover -func=coverage.out
 - [ ] containerd runtime adapter
 - [ ] CalVer and similar schemes (currently treated as plain SemVer, not as a calendrical scheme)
 - [ ] custom grammars for non-SemVer schemes
-- [ ] credential-helper integration for registries
 - [ ] support for digest-pinned references (`image@sha256:…`) in the notification pipeline (they are recognized but excluded from analysis)

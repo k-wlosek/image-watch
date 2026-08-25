@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/k-wlosek/image-watch/internal/config"
+	"github.com/k-wlosek/image-watch/internal/credentials"
 	"github.com/k-wlosek/image-watch/internal/metrics"
 	"github.com/k-wlosek/image-watch/internal/notify"
 	"github.com/k-wlosek/image-watch/internal/notify/ntfy"
@@ -38,7 +39,7 @@ func buildObserver(cfg config.Config, m *metrics.Metrics) (*observer.Observer, e
 
 	var registryMu sync.Mutex
 	registryClients := make(map[string]registry.Registry)
-	credentials := credentialProviderFor(cfg)
+	creds := buildCredentialChain(cfg)
 
 	// Pre-build clients for configured hosts: custom TLS trust and plain
 	// HTTP are per-host wiring concerns that can't be expressed by the
@@ -48,7 +49,7 @@ func buildObserver(cfg config.Config, m *metrics.Metrics) (*observer.Observer, e
 		if err != nil {
 			return nil, fmt.Errorf("registry %s: %w", host, err)
 		}
-		c := distribution.New(host, httpClient, credentials)
+		c := distribution.New(host, httpClient, creds)
 		c.Scheme = auth.Scheme
 		if m != nil {
 			c.Instrumentation = registryInstrumentation{m}
@@ -62,7 +63,7 @@ func buildObserver(cfg config.Config, m *metrics.Metrics) (*observer.Observer, e
 		if c, ok := registryClients[host]; ok {
 			return c
 		}
-		c := distribution.New(host, nil, credentials)
+		c := distribution.New(host, nil, creds)
 		if m != nil {
 			c.Instrumentation = registryInstrumentation{m}
 		}
@@ -163,20 +164,25 @@ func resolveEnvCredential(usernameEnv, passwordEnv string) (username, password s
 	return username, password
 }
 
-// credentialProviderFor resolves registry credentials from the environment.
-func credentialProviderFor(cfg config.Config) distribution.CredentialProvider {
-	return func(host string) (string, string, bool) {
-		auth, ok := cfg.Registries[host]
-		if !ok {
-			return "", "", false
-		}
-		username := os.Getenv(auth.UsernameEnv)
-		password := os.Getenv(auth.PasswordEnv)
-		if username == "" && password == "" {
-			return "", "", false
-		}
-		return username, password, true
+// buildCredentialChain resolves registry credentials from explicit env
+// config first, then Docker/Podman auth config files.
+func buildCredentialChain(cfg config.Config) distribution.CredentialProvider {
+	reg := make(map[string]credentials.RegistryAuth, len(cfg.Registries))
+	for host, auth := range cfg.Registries {
+		reg[host] = credentials.RegistryAuth{UsernameEnv: auth.UsernameEnv, PasswordEnv: auth.PasswordEnv}
 	}
+
+	chain := credentials.Chain{
+		credentials.EnvSource{Registries: reg},
+		credentials.ConfigFileSource{
+			Paths: append(
+				credentials.DockerConfigPaths(),
+				credentials.PodmanConfigPaths()...,
+			),
+			Logf: func(format string, args ...any) { fmt.Fprintf(os.Stderr, "image-watch: "+format+"\n", args...) },
+		},
+	}
+	return chain.Lookup
 }
 
 // enabledCategories returns a short string of enabled policy categories.

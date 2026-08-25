@@ -11,10 +11,10 @@ import (
 )
 
 // CredentialProvider resolves username/password credentials for a registry host.
-type CredentialProvider func(registryHost string) (username, password string, ok bool)
+type CredentialProvider func(ctx context.Context, registryHost string) (username, password string, ok bool)
 
 // NoCredentials returns no credentials.
-func NoCredentials(string) (string, string, bool) { return "", "", false }
+func NoCredentials(context.Context, string) (string, string, bool) { return "", "", false }
 
 // challenge is a parsed WWW-Authenticate: Bearer challenge.
 type challenge struct {
@@ -142,7 +142,7 @@ func (a *authenticator) tokenFor(ctx context.Context, registryHost string, c cha
 	if err != nil {
 		return "", err
 	}
-	if username, password, ok := a.credentials(registryHost); ok {
+	if username, password, ok := a.credentials(ctx, registryHost); ok {
 		req.SetBasicAuth(username, password)
 	}
 
