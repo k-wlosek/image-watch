@@ -4,6 +4,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/k-wlosek/image-watch/internal/notify"
 )
 
 func TestParseDiscordConfig_MissingTokenEnv(t *testing.T) {
@@ -280,5 +282,276 @@ func TestParseEmailConfig_UnsetEnvVarsAreEmpty(t *testing.T) {
 	}
 	if cfg.SMTPUsername != "" {
 		t.Errorf("SMTPUsername should be empty for unset env, got %q", cfg.SMTPUsername)
+	}
+}
+
+func TestParseAmazonSNSConfig_MissingAccessKeyEnv(t *testing.T) {
+	_, err := ParseAmazonSNSConfig(map[string]string{"secret_key_env": "S", "region": "eu-west-1", "topic": "arn:1"})
+	if err == nil || !strings.Contains(err.Error(), "access_key_id_env is required") {
+		t.Fatalf("expected access_key_id_env error, got %v", err)
+	}
+}
+
+func TestParseAmazonSNSConfig_HappyPath(t *testing.T) {
+	t.Setenv("IW_AWS_AK", "ak")
+	t.Setenv("IW_AWS_SK", "sk")
+	cfg, err := ParseAmazonSNSConfig(map[string]string{
+		"access_key_id_env": "IW_AWS_AK",
+		"secret_key_env":    "IW_AWS_SK",
+		"region":            "eu-west-1",
+		"topic":             "arn:aws:sns:r:t1, arn:aws:sns:r:t2",
+	})
+	if err != nil {
+		t.Fatalf("ParseAmazonSNSConfig error: %v", err)
+	}
+	if cfg.AccessKeyID != "ak" || cfg.SecretKey != "sk" || cfg.Region != "eu-west-1" {
+		t.Errorf("unexpected cfg: %+v", cfg)
+	}
+	if len(cfg.TopicARNs) != 2 {
+		t.Errorf("TopicARNs = %v, want 2", cfg.TopicARNs)
+	}
+}
+
+func TestParseMatrixConfig_MissingFields(t *testing.T) {
+	cases := map[string]string{
+		"user_id":          "matrix: user_id is required",
+		"room_id":          "matrix: room_id is required",
+		"home_server":      "matrix: home_server is required",
+		"access_token_env": "matrix: access_token_env is required",
+	}
+	for missing, want := range cases {
+		base := map[string]string{
+			"user_id":          "u",
+			"room_id":          "r",
+			"home_server":      "https://matrix.org",
+			"access_token_env": "IW_MX",
+		}
+		delete(base, missing)
+		_, err := ParseMatrixConfig(base)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("%s: expected %q, got %v", missing, want, err)
+		}
+	}
+}
+
+func TestParseMatrixConfig_HappyPath(t *testing.T) {
+	t.Setenv("IW_MX", "tok")
+	cfg, err := ParseMatrixConfig(map[string]string{
+		"user_id":          "@u:matrix.org",
+		"room_id":          "!r:matrix.org",
+		"home_server":      "https://matrix.org",
+		"access_token_env": "IW_MX",
+	})
+	if err != nil {
+		t.Fatalf("ParseMatrixConfig error: %v", err)
+	}
+	if cfg.AccessToken != "tok" || cfg.RoomID != "!r:matrix.org" {
+		t.Errorf("unexpected cfg: %+v", cfg)
+	}
+}
+
+func TestParseMattermostConfig_RequiresURLAndChannel(t *testing.T) {
+	_, err := ParseMattermostConfig(map[string]string{"token_env": "IW_MM"})
+	if err == nil || !strings.Contains(err.Error(), "url is required") {
+		t.Fatalf("expected url error, got %v", err)
+	}
+	t.Setenv("IW_MM", "tok")
+	_, err = ParseMattermostConfig(map[string]string{"url": "https://mm.example.com", "token_env": "IW_MM"})
+	if err == nil || !strings.Contains(err.Error(), "channel is required") {
+		t.Fatalf("expected channel error, got %v", err)
+	}
+}
+
+func TestParseMattermostConfig_NeitherAuth(t *testing.T) {
+	_, err := ParseMattermostConfig(map[string]string{"url": "https://mm.example.com", "channel": "c1"})
+	if err == nil || !strings.Contains(err.Error(), "token_env or login_id_env is required") {
+		t.Fatalf("expected auth error, got %v", err)
+	}
+}
+
+func TestParseMattermostConfig_BothAuth(t *testing.T) {
+	_, err := ParseMattermostConfig(map[string]string{
+		"url": "https://mm.example.com", "channel": "c1",
+		"token_env": "IW_MM", "login_id_env": "IW_MML",
+	})
+	if err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Fatalf("expected both-auth error, got %v", err)
+	}
+}
+
+func TestParseMattermostConfig_TokenMode(t *testing.T) {
+	t.Setenv("IW_MM", "pat")
+	cfg, err := ParseMattermostConfig(map[string]string{
+		"url": "https://mm.example.com", "channel": "c1, c2", "token_env": "IW_MM",
+	})
+	if err != nil {
+		t.Fatalf("ParseMattermostConfig error: %v", err)
+	}
+	if cfg.Token != "pat" || len(cfg.ChannelIDs) != 2 {
+		t.Errorf("unexpected cfg: %+v", cfg)
+	}
+}
+
+func TestParseMattermostConfig_LoginMode(t *testing.T) {
+	t.Setenv("IW_MML", "alice")
+	t.Setenv("IW_MMP", "pw")
+	cfg, err := ParseMattermostConfig(map[string]string{
+		"url": "https://mm.example.com", "channel": "c1",
+		"login_id_env": "IW_MML", "password_env": "IW_MMP",
+	})
+	if err != nil {
+		t.Fatalf("ParseMattermostConfig error: %v", err)
+	}
+	if cfg.LoginID != "alice" || cfg.Password != "pw" || cfg.Token != "" {
+		t.Errorf("unexpected cfg: %+v", cfg)
+	}
+}
+
+func TestParseMSTeamsConfig_MissingWebhook(t *testing.T) {
+	_, err := ParseMSTeamsConfig(map[string]string{})
+	if err == nil || !strings.Contains(err.Error(), "webhook is required") {
+		t.Fatalf("expected webhook error, got %v", err)
+	}
+}
+
+func TestParseMSTeamsConfig_HappyPath(t *testing.T) {
+	cfg, err := ParseMSTeamsConfig(map[string]string{"webhook": "https://a, https://b"})
+	if err != nil {
+		t.Fatalf("ParseMSTeamsConfig error: %v", err)
+	}
+	if len(cfg.Webhooks) != 2 {
+		t.Errorf("Webhooks = %v, want 2", cfg.Webhooks)
+	}
+}
+
+func TestParsePagerDutyConfig_HappyPath(t *testing.T) {
+	t.Setenv("IW_PD", "routing")
+	cfg, err := ParsePagerDutyConfig(map[string]string{
+		"token_env": "IW_PD", "from_address": "ops@example.com", "service": "P123, P456",
+	})
+	if err != nil {
+		t.Fatalf("ParsePagerDutyConfig error: %v", err)
+	}
+	if cfg.Token != "routing" || cfg.FromAddress != "ops@example.com" || cfg.NotificationType != "incident" {
+		t.Errorf("unexpected cfg: %+v", cfg)
+	}
+	if len(cfg.ServiceIDs) != 2 {
+		t.Errorf("ServiceIDs = %v, want 2", cfg.ServiceIDs)
+	}
+}
+
+func TestParsePagerDutyConfig_MissingService(t *testing.T) {
+	t.Setenv("IW_PD", "routing")
+	_, err := ParsePagerDutyConfig(map[string]string{"token_env": "IW_PD", "from_address": "ops@example.com"})
+	if err == nil || !strings.Contains(err.Error(), "service is required") {
+		t.Fatalf("expected service error, got %v", err)
+	}
+}
+
+func TestParsePushoverConfig_HappyPath(t *testing.T) {
+	t.Setenv("IW_PO", "app")
+	cfg, err := ParsePushoverConfig(map[string]string{"app_token_env": "IW_PO", "user": "u1, u2"})
+	if err != nil {
+		t.Fatalf("ParsePushoverConfig error: %v", err)
+	}
+	if cfg.AppToken != "app" || len(cfg.Recipients) != 2 {
+		t.Errorf("unexpected cfg: %+v", cfg)
+	}
+}
+
+func TestParseRocketChatConfig_HappyPath(t *testing.T) {
+	t.Setenv("IW_RC", "tok")
+	cfg, err := ParseRocketChatConfig(map[string]string{
+		"server_url": "chat.example.com", "scheme": "https",
+		"user_id": "u1", "token_env": "IW_RC", "channel": "general, alerts",
+	})
+	if err != nil {
+		t.Fatalf("ParseRocketChatConfig error: %v", err)
+	}
+	if cfg.Scheme != "https" || cfg.UserID != "u1" || cfg.Token != "tok" {
+		t.Errorf("unexpected cfg: %+v", cfg)
+	}
+	if len(cfg.Channels) != 2 {
+		t.Errorf("Channels = %v, want 2", cfg.Channels)
+	}
+}
+
+func TestParseRocketChatConfig_DefaultScheme(t *testing.T) {
+	t.Setenv("IW_RC", "tok")
+	cfg, err := ParseRocketChatConfig(map[string]string{
+		"server_url": "chat.example.com", "user_id": "u1", "token_env": "IW_RC", "channel": "general",
+	})
+	if err != nil {
+		t.Fatalf("ParseRocketChatConfig error: %v", err)
+	}
+	if cfg.Scheme != "https" {
+		t.Errorf("Scheme = %q, want https (default)", cfg.Scheme)
+	}
+}
+
+// TestBuild_NewServices constructs the adapters that perform no network I/O at
+// build time. rocketchat and mattermost (login mode) authenticate against their
+// server during construction, so they are exercised only via Parse*Config tests.
+func TestBuild_NewServices(t *testing.T) {
+	cases := []struct {
+		typ    string
+		params map[string]string
+		env    map[string]string
+	}{
+		{
+			typ: "amazonsns",
+			params: map[string]string{
+				"access_key_id_env": "IW_AK", "secret_key_env": "IW_SK",
+				"region": "eu-west-1", "topic": "arn:1",
+			},
+			env: map[string]string{"IW_AK": "ak", "IW_SK": "sk"},
+		},
+		{
+			typ: "matrix",
+			params: map[string]string{
+				"user_id": "@u:matrix.org", "room_id": "!r:matrix.org",
+				"home_server": "https://matrix.org", "access_token_env": "IW_MX",
+			},
+			env: map[string]string{"IW_MX": "tok"},
+		},
+		{
+			typ:    "msteams",
+			params: map[string]string{"webhook": "https://example.com/hook"},
+		},
+		{
+			typ: "pagerduty",
+			params: map[string]string{
+				"token_env": "IW_PD", "from_address": "ops@example.com", "service": "P123",
+			},
+			env: map[string]string{"IW_PD": "routing"},
+		},
+		{
+			typ:    "pushover",
+			params: map[string]string{"app_token_env": "IW_PO", "user": "u1"},
+			env:    map[string]string{"IW_PO": "app"},
+		},
+		{
+			// mattermost personal-access-token mode: no network at build.
+			typ: "mattermost",
+			params: map[string]string{
+				"url": "https://mm.example.com", "channel": "c1", "token_env": "IW_MM",
+			},
+			env: map[string]string{"IW_MM": "pat"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.typ, func(t *testing.T) {
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			n, err := notify.Build(tc.typ, tc.params)
+			if err != nil {
+				t.Fatalf("notify.Build(%q) error: %v", tc.typ, err)
+			}
+			if n == nil {
+				t.Fatalf("notify.Build(%q) returned nil notifier", tc.typ)
+			}
+		})
 	}
 }

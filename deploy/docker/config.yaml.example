@@ -52,6 +52,46 @@ notifications:
     #     to: "user@example.com,team@example.com"
     #     username_env: EMAIL_USER
     #     password_env: EMAIL_PASS
+    # - type: amazonsns
+    #   params:
+    #     access_key_id_env: AWS_ACCESS_KEY_ID
+    #     secret_key_env: AWS_SECRET_ACCESS_KEY
+    #     region: eu-west-1
+    #     topic: "arn:aws:sns:eu-west-1:123456789:topic1,arn:aws:sns:eu-west-1:123456789:topic2"
+    # - type: matrix
+    #   params:
+    #     user_id: "@imagewatch:matrix.org"
+    #     room_id: "!abc123:matrix.org"
+    #     home_server: https://matrix.org
+    #     access_token_env: MATRIX_TOKEN
+    # - type: mattermost
+    #   params:
+    #     url: https://mattermost.example.com
+    #     channel: "channel-id-1,channel-id-2"
+    #     token_env: MATTERMOST_TOKEN # personal access token
+    #     # or login credentials:
+    #     # login_id_env: MATTERMOST_LOGIN_ID
+    #     # password_env: MATTERMOST_PASSWORD
+    # - type: msteams
+    #   params:
+    #     webhook: "https://example.webhook.office.com/.../a,https://example.webhook.office.com/.../b"
+    # - type: pagerduty
+    #   params:
+    #     token_env: PAGERDUTY_TOKEN
+    #     from_address: image-watch@example.com
+    #     service: "PABCD123,PXYZ789" # comma-separated service IDs
+    #     notification_type: incident # optional, default "incident"
+    # - type: pushover
+    #   params:
+    #     app_token_env: PUSHOVER_APP_TOKEN
+    #     user: "uz123abc,group456def" # comma-separated recipient keys
+    # - type: rocketchat
+    #   params:
+    #     server_url: chat.example.com
+    #     scheme: https # optional, default https
+    #     user_id: "imagewatch"
+    #     token_env: ROCKETCHAT_TOKEN
+    #     channel: "general,alerts" # comma-separated channel names
   registry_outage:
     enabled: false
     consecutive_failures: 3
