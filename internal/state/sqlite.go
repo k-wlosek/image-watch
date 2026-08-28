@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -88,6 +89,7 @@ func (s *SQLiteStore) PruneNotifications(ctx context.Context, olderThan time.Dur
 		// Don't fail the whole operation just because we can't get the count
 		return 0, nil
 	}
+	slog.Debug("PruneNotifications: completed", "removed", n)
 	return n, nil
 }
 
@@ -113,6 +115,10 @@ func (s *SQLiteStore) GetObservation(ctx context.Context, key Key) (Observation,
 
 	err := row.Scan(&obs.PlatformManifestDigest, &obs.IndexDigest, &lastSuccess, &obs.LastError, &lastErrorAt, &status)
 	if err == sql.ErrNoRows {
+		slog.Debug("GetObservation: no prior observation",
+			"registry", key.Registry, "repository", key.Repository, "tag", key.Tag,
+			"platform", key.Platform.OS+"/"+key.Platform.Architecture+"/"+key.Platform.Variant,
+		)
 		return Observation{}, false, nil
 	}
 	if err != nil {
@@ -126,6 +132,12 @@ func (s *SQLiteStore) GetObservation(ctx context.Context, key Key) (Observation,
 	if lastErrorAt.Valid {
 		obs.LastErrorAt = lastErrorAt.Time
 	}
+	slog.Debug("GetObservation: loaded",
+		"registry", key.Registry, "repository", key.Repository, "tag", key.Tag,
+		"platform", key.Platform.OS+"/"+key.Platform.Architecture+"/"+key.Platform.Variant,
+		"digest", obs.PlatformManifestDigest,
+		"status", status,
+	)
 	return obs, true, nil
 }
 
@@ -161,6 +173,10 @@ func (s *SQLiteStore) PutObservation(ctx context.Context, obs Observation) error
 	if err != nil {
 		return fmt.Errorf("state: failed to persist observation: %w", err)
 	}
+	slog.Debug("PutObservation: persisted",
+		"registry", obs.Key.Registry, "repository", obs.Key.Repository, "tag", obs.Key.Tag,
+		"digest", obs.PlatformManifestDigest, "status", string(obs.Status),
+	)
 	return nil
 }
 
@@ -168,11 +184,13 @@ func (s *SQLiteStore) HasNotified(ctx context.Context, fingerprint string) (bool
 	var exists int
 	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM notifications WHERE fingerprint = ?`, fingerprint).Scan(&exists)
 	if err == sql.ErrNoRows {
+		slog.Debug("HasNotified: fingerprint not found (new)", "fingerprint_prefix", fingerprint[:min(16, len(fingerprint))])
 		return false, nil
 	}
 	if err != nil {
 		return false, fmt.Errorf("state: failed to query notification fingerprint: %w", err)
 	}
+	slog.Debug("HasNotified: fingerprint found (duplicate)", "fingerprint_prefix", fingerprint[:min(16, len(fingerprint))])
 	return true, nil
 }
 
@@ -184,5 +202,6 @@ func (s *SQLiteStore) MarkNotified(ctx context.Context, fingerprint string) erro
 	if err != nil {
 		return fmt.Errorf("state: failed to record notification fingerprint: %w", err)
 	}
+	slog.Debug("MarkNotified: recorded", "fingerprint_prefix", fingerprint[:min(16, len(fingerprint))])
 	return nil
 }

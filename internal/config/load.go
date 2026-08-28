@@ -131,6 +131,11 @@ type rawConfig struct {
 		Scheme      string `yaml:"scheme"`
 		CAFile      string `yaml:"ca_file"`
 	} `yaml:"registries"`
+
+	Log *struct {
+		Level  string `yaml:"level"`
+		Format string `yaml:"format"`
+	} `yaml:"log"`
 }
 
 func mergeRaw(cfg Config, raw rawConfig) (Config, error) {
@@ -241,6 +246,15 @@ func mergeRaw(cfg Config, raw rawConfig) (Config, error) {
 		}
 	}
 
+	if raw.Log != nil {
+		if raw.Log.Level != "" {
+			cfg.Log.Level = raw.Log.Level
+		}
+		if raw.Log.Format != "" {
+			cfg.Log.Format = raw.Log.Format
+		}
+	}
+
 	return cfg, nil
 }
 
@@ -275,6 +289,12 @@ func applyEnvOverrides(cfg Config) (Config, error) {
 	}
 	if v := os.Getenv("IMAGE_WATCH_METRICS_LISTEN"); v != "" {
 		cfg.Metrics.Listen = v
+	}
+	if v := os.Getenv("IMAGE_WATCH_LOG_LEVEL"); v != "" {
+		cfg.Log.Level = v
+	}
+	if v := os.Getenv("IMAGE_WATCH_LOG_FORMAT"); v != "" {
+		cfg.Log.Format = v
 	}
 	return cfg, nil
 }
@@ -314,6 +334,16 @@ func validate(cfg Config) error {
 	}
 	if cfg.Concurrency.Workers < 1 {
 		return fmt.Errorf("concurrency.workers must be at least 1, got %d", cfg.Concurrency.Workers)
+	}
+	switch cfg.Log.Level {
+	case "debug", "info", "warn", "error":
+	default:
+		return fmt.Errorf("log.level must be \"debug\", \"info\", \"warn\", or \"error\", got %q", cfg.Log.Level)
+	}
+	switch cfg.Log.Format {
+	case "text", "json":
+	default:
+		return fmt.Errorf("log.format must be \"text\" or \"json\", got %q", cfg.Log.Format)
 	}
 	return nil
 }

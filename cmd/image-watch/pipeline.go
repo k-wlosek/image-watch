@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/k-wlosek/image-watch/internal/event"
@@ -25,17 +26,34 @@ func BuildNotification(ctx context.Context, results []observer.Result, store sta
 		for _, e := range r.Events {
 			allowed, suppressed := allowContainers(r, e.Type)
 			if len(allowed) == 0 {
+				slog.Debug("BuildNotification: event suppressed by policy",
+					"image", imageName,
+					"type", e.Type,
+					"containers_suppressed", r.ContainerNames,
+				)
 				continue
 			}
 
 			fp := event.Fingerprint(e)
 			notified, err := store.HasNotified(ctx, fp)
 			if err != nil {
-				fmt.Printf("warning: dedup lookup failed for %s (%s): %v; including anyway\n", imageName, e.Type, err)
+				slog.Warn("dedup lookup failed, including anyway", "image", imageName, "type", e.Type, "error", err)
 			} else if notified {
+				slog.Debug("BuildNotification: dedup suppressed",
+					"image", imageName,
+					"type", e.Type,
+					"fingerprint", fp,
+				)
 				continue
 			}
 
+			slog.Debug("BuildNotification: item included",
+				"image", imageName,
+				"type", e.Type,
+				"fingerprint", fp,
+				"containers", allowed,
+				"suppressed", suppressed,
+			)
 			note.Items = append(note.Items, notify.Item{
 				Fingerprint:       fp,
 				Image:             imageName,
@@ -80,8 +98,10 @@ func Deliver(ctx context.Context, notifiers []notify.Notifier, note notify.Notif
 	var errs []error
 	for _, n := range notifiers {
 		if nerr := n.Notify(ctx, note); nerr != nil {
+			slog.Debug("Deliver: notifier failed", "notifier", fmt.Sprintf("%T", n), "error", nerr)
 			errs = append(errs, nerr)
 		} else {
+			slog.Debug("Deliver: notifier succeeded", "notifier", fmt.Sprintf("%T", n), "items", len(note.Items))
 			delivered = true
 		}
 	}
@@ -94,8 +114,11 @@ func Deliver(ctx context.Context, notifiers []notify.Notifier, note notify.Notif
 // MarkDelivered records every item's fingerprint as notified.
 func MarkDelivered(ctx context.Context, note notify.Notification, store state.Store) {
 	for _, item := range note.Items {
+		slog.Debug("MarkDelivered: recording fingerprint",
+			"image", item.Image, "type", item.Type, "fingerprint", item.Fingerprint,
+		)
 		if err := store.MarkNotified(ctx, item.Fingerprint); err != nil {
-			fmt.Printf("warning: failed to record notification dedup state for %s (%s): %v\n", item.Image, item.Type, err)
+			slog.Warn("failed to record dedup state", "image", item.Image, "type", item.Type, "error", err)
 		}
 	}
 }
@@ -105,6 +128,8 @@ func DeliverAndMark(ctx context.Context, notifiers []notify.Notifier, note notif
 	if len(note.Items) == 0 {
 		return nil
 	}
+
+	slog.Debug("DeliverAndMark: delivering", "mode", mode, "items", len(note.Items))
 
 	if mode != "individual" {
 		delivered, err := Deliver(ctx, notifiers, note)

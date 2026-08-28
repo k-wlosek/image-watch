@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -147,7 +148,7 @@ func buildNotifiers(cfg config.Config) []notify.Notifier {
 		case "webhook":
 			notifiers = append(notifiers, webhook.New(webhook.Config{URL: t.URL}, nil))
 		default:
-			fmt.Fprintf(os.Stderr, "warning: skipping unrecognized notification target type %q\n", t.Type)
+			slog.Warn("skipping unknown notification target type", "type", t.Type)
 		}
 	}
 	return notifiers
@@ -179,7 +180,6 @@ func buildCredentialChain(cfg config.Config) distribution.CredentialProvider {
 				credentials.DockerConfigPaths(),
 				credentials.PodmanConfigPaths()...,
 			),
-			Logf: func(format string, args ...any) { fmt.Fprintf(os.Stderr, "image-watch: "+format+"\n", args...) },
 		},
 	}
 	return chain.Lookup

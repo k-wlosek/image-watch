@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/k-wlosek/image-watch/internal/config"
 	"github.com/k-wlosek/image-watch/internal/event"
+	"github.com/k-wlosek/image-watch/internal/log"
 	"github.com/k-wlosek/image-watch/internal/metrics"
 	"github.com/k-wlosek/image-watch/internal/observer"
 )
@@ -48,6 +50,7 @@ func runDaemon() {
 		fmt.Fprintln(os.Stderr, "image-watch daemon: config error:", err)
 		os.Exit(1)
 	}
+	log.Setup(cfg.Log.Level, cfg.Log.Format)
 
 	var m *metrics.Metrics
 	if cfg.Metrics.Enabled {
@@ -56,7 +59,7 @@ func runDaemon() {
 
 	obs, err := buildObserver(cfg, m)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "image-watch daemon:", err)
+		slog.Error("failed to initialize observer", "error", err)
 		os.Exit(1)
 	}
 	if closer, ok := obs.Store.(interface{ Close() error }); ok {
@@ -78,30 +81,31 @@ func runDaemon() {
 		httpServer = newHTTPServer(cfg.Metrics.Listen, m)
 		go func() {
 			if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				fmt.Fprintln(os.Stderr, "image-watch daemon: http server error:", err)
+				slog.Error("metrics server error", "error", err)
 			}
 		}()
-		fmt.Printf("image-watch: operational endpoints listening on %s\n", cfg.Metrics.Listen)
+		slog.Info("metrics endpoint listening", "addr", cfg.Metrics.Listen)
 	}
 
-	fmt.Printf("image-watch: starting (runtime=%s, interval=%s)\n", cfg.Runtime.Type, cfg.CheckInterval)
+	slog.Info("daemon starting",
+		"runtime", cfg.Runtime.Type,
+		"interval", cfg.CheckInterval,
+	)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	runErr := daemon.Run(ctx)
-	// context.Canceled is the expected outcome of a clean shutdown
-	// signal, not a failure worth a non-zero exit.
 	if runErr != nil && !errors.Is(runErr, context.Canceled) {
-		fmt.Fprintln(os.Stderr, "image-watch daemon: scheduler stopped unexpectedly:", runErr)
+		slog.Error("scheduler stopped unexpectedly", "error", runErr)
 	}
 
-	fmt.Println("image-watch: shutting down")
+	slog.Info("shutting down")
 	if httpServer != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if err := shutdownHTTPServer(shutdownCtx, httpServer); err != nil {
-			fmt.Fprintln(os.Stderr, "image-watch daemon: http server shutdown error:", err)
+			slog.Error("metrics server shutdown error", "error", err)
 		}
 	}
 }
@@ -112,10 +116,11 @@ func runCheck() {
 		fmt.Fprintln(os.Stderr, "image-watch check: config error:", err)
 		os.Exit(1)
 	}
+	log.Setup(cfg.Log.Level, cfg.Log.Format)
 
 	obs, err := buildObserver(cfg, nil)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "image-watch check:", err)
+		slog.Error("failed to initialize observer", "error", err)
 		os.Exit(1)
 	}
 	if closer, ok := obs.Store.(interface{ Close() error }); ok {
@@ -127,7 +132,7 @@ func runCheck() {
 
 	results, err := obs.Check(ctx)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "image-watch check: failed to list running containers:", err)
+		slog.Error("failed to list running containers", "error", err)
 		os.Exit(1)
 	}
 
@@ -152,7 +157,7 @@ func runCheck() {
 	} else {
 		notifiers := buildNotifiers(cfg)
 		if err := DeliverAndMark(ctx, notifiers, note, cfg.Notifications.Mode, obs.Store); err != nil {
-			fmt.Fprintln(os.Stderr, "notification delivery had errors:", err)
+			slog.Error("notification delivery failed", "error", err)
 			exitCode = 1
 		}
 	}
@@ -211,16 +216,17 @@ func runHealthcheck() int {
 		fmt.Fprintln(os.Stderr, "healthcheck: config error:", err)
 		return 1
 	}
+	log.Setup(cfg.Log.Level, cfg.Log.Format)
 	url := "http://" + healthcheckAddr(cfg.Metrics.Listen) + "/healthz"
 
 	resp, err := http.Get(url)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "healthcheck: request failed:", err)
+		slog.Error("healthcheck request failed", "error", err)
 		return 1
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		fmt.Fprintln(os.Stderr, "healthcheck: unhealthy status", resp.StatusCode)
+		slog.Error("healthcheck unhealthy", "status", resp.StatusCode)
 		return 1
 	}
 	return 0

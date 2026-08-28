@@ -47,6 +47,10 @@ enrichment:
 concurrency:
   workers: 4
 
+log:
+  level: info # debug, info, warn, error
+  format: text # text or json
+
 # Optional per-host registry credentials and TLS options:
 registries:
   ghcr.io:

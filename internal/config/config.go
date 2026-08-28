@@ -20,6 +20,7 @@ type Config struct {
 	Enrichment    EnrichmentConfig
 	Concurrency   ConcurrencyConfig
 	Registries    map[string]RegistryAuthConfig
+	Log           LogConfig
 }
 
 // RuntimeConfig selects the container runtime adapter.
@@ -123,6 +124,12 @@ type RegistryAuthConfig struct {
 	CAFile string
 }
 
+// LogConfig configures structured logging output.
+type LogConfig struct {
+	Level  string // "debug", "info", "warn", "error"
+	Format string // "text", "json"
+}
+
 // DefaultEndpoint returns the conventional socket for the given runtime type.
 func DefaultEndpoint(runtimeType string) string {
 	switch runtimeType {
@@ -157,5 +164,6 @@ func Default() Config {
 		Enrichment:  DefaultEnrichmentConfig(),
 		Concurrency: DefaultConcurrencyConfig(),
 		Registries:  map[string]RegistryAuthConfig{},
+		Log:         LogConfig{Level: "info", Format: "text"},
 	}
 }

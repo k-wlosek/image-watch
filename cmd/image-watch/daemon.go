@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -24,17 +25,6 @@ type Daemon struct {
 
 	// RegistryOutages is optional.
 	RegistryOutages *RegistryOutageTracker
-
-	// Logf receives operational log lines.
-	Logf func(format string, args ...any)
-}
-
-func (d *Daemon) logf(format string, args ...any) {
-	if d.Logf != nil {
-		d.Logf(format, args...)
-		return
-	}
-	fmt.Printf(format+"\n", args...)
 }
 
 // Run performs one cycle immediately, then repeats until ctx is canceled.
@@ -57,10 +47,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 // runCycle performs one check-detect-notify cycle.
 func (d *Daemon) runCycle(ctx context.Context) {
 	start := time.Now()
+	slog.Debug("runCycle: started")
 
 	results, err := d.Observer.Check(ctx)
 	if err != nil {
-		d.logf("check cycle failed: %v", err)
+		slog.Error("check cycle failed", "error", err)
 		if d.Metrics != nil {
 			d.Metrics.RecordCheck(time.Since(start), err)
 		}
@@ -94,7 +85,13 @@ func (d *Daemon) runCycle(ctx context.Context) {
 
 		if drift != nil {
 			for _, item := range drift.items {
-				d.logf("drift: %s:%s (%s) container %s running, registry serves %s", drift.image, drift.tag, drift.platform, item, drift.served)
+				slog.Warn("digest drift",
+					"image", drift.image,
+					"tag", drift.tag,
+					"platform", drift.platform,
+					"container", item,
+					"served", drift.served,
+				)
 			}
 		}
 	}
@@ -104,12 +101,15 @@ func (d *Daemon) runCycle(ctx context.Context) {
 	}
 
 	note := BuildNotification(ctx, results, d.Observer.Store)
+	slog.Debug("runCycle: notification built", "items", len(note.Items))
 	if len(note.Items) > 0 {
 		if h, err := d.Observer.Runtime.Hostname(ctx); err == nil {
 			note.Hostname = h
+		} else {
+			slog.Debug("runCycle: hostname resolution failed, notification will lack hostname", "error", err)
 		}
 		if err := DeliverAndMark(ctx, d.Notifiers, note, d.Config.Notifications.Mode, d.Observer.Store); err != nil {
-			d.logf("notification delivery had errors: %v", err)
+			slog.Error("notification delivery failed", "error", err)
 			if d.Metrics != nil {
 				d.Metrics.RecordNotification(err)
 			}
@@ -123,7 +123,7 @@ func (d *Daemon) runCycle(ctx context.Context) {
 		if len(alerts) > 0 {
 			outageNote := notify.Notification{Timestamp: time.Now(), Items: alerts}
 			if _, err := Deliver(ctx, d.Notifiers, outageNote); err != nil {
-				d.logf("registry outage notification failed: %v", err)
+				slog.Error("registry outage notification failed", "error", err)
 			}
 		}
 	}
@@ -132,9 +132,12 @@ func (d *Daemon) runCycle(ctx context.Context) {
 		d.Metrics.RecordCheck(time.Since(start), nil)
 	}
 
-	d.logf(
-		"check complete: %d image(s) checked, %d failed, %d event(s) detected, %d notification(s) sent, took %s",
-		len(results), failedImages, countEvents(results), len(note.Items), time.Since(start).Round(time.Millisecond),
+	slog.Info("check complete",
+		"images", len(results),
+		"failed", failedImages,
+		"events", countEvents(results),
+		"notifications", len(note.Items),
+		"duration", time.Since(start).Round(time.Millisecond),
 	)
 }
 

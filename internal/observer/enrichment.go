@@ -2,6 +2,7 @@ package observer
 
 import (
 	"context"
+	"log/slog"
 	"sort"
 	"sync"
 	"time"
@@ -39,6 +40,7 @@ func (c *groupCache) list(ctx context.Context, reg registry.Registry, repository
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if tags, ok := c.tags[repository]; ok {
+		slog.Debug("groupCache: hit", "repository", repository, "tags_count", len(tags))
 		return tags, c.errs[repository]
 	}
 	tags, err := reg.ListTags(ctx, repository)
@@ -58,11 +60,21 @@ func (o *Observer) attemptEnrichment(ctx context.Context, reg registry.Registry,
 		timeout = defaultEnrichmentTimeout
 	}
 
+	slog.Debug("attemptEnrichment: starting",
+		"image", key.Registry+"/"+key.Repository,
+		"tag", key.Tag,
+		"target_digest", newDigest,
+		"platform", key.Platform.String(),
+		"max_tags", maxTags,
+		"timeout", timeout,
+	)
+
 	enrichCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	tags, err := cache.list(enrichCtx, reg, key.Repository)
 	if err != nil {
+		slog.Debug("enrichment failed: tag list error", "image", key.Registry+"/"+key.Repository, "error", err)
 		o.observeEnrichment(false)
 		return "", false
 	}
@@ -89,6 +101,7 @@ func (o *Observer) attemptEnrichment(ctx context.Context, reg registry.Registry,
 		candidates = candidates[:maxTags]
 	}
 	if len(candidates) == 0 {
+		slog.Debug("enrichment failed: no version candidates", "image", key.Registry+"/"+key.Repository, "tag", key.Tag)
 		o.observeEnrichment(false)
 		return "", false
 	}
@@ -104,6 +117,7 @@ func (o *Observer) attemptEnrichment(ctx context.Context, reg registry.Registry,
 	for start := 0; start < len(candidates); start += window {
 		end := min(start+window, len(candidates))
 		if enrichCtx.Err() != nil {
+			slog.Debug("attemptEnrichment: timed out or cancelled", "error", enrichCtx.Err())
 			break
 		}
 
@@ -115,20 +129,32 @@ func (o *Observer) attemptEnrichment(ctx context.Context, reg registry.Registry,
 		}
 		wg.Wait()
 		if enrichCtx.Err() != nil {
+			slog.Debug("attemptEnrichment: timed out or cancelled", "error", enrichCtx.Err())
 			break
 		}
 
 		for i := start; i < end; i++ {
 			if errs[i] != nil {
+				slog.Debug("attemptEnrichment: candidate resolve failed",
+					"candidate_tag", candidates[i].raw,
+					"error", errs[i],
+				)
 				continue
 			}
 			if obs[i].PlatformManifestDigest == newDigest {
+				slog.Debug("enrichment resolved", "image", key.Registry+"/"+key.Repository, "tag", key.Tag, "inferred_tag", candidates[i].raw)
 				o.observeEnrichment(true)
 				return candidates[i].raw, true
 			}
 		}
 	}
 
+	slog.Debug("attemptEnrichment: no candidate matched target digest",
+		"image", key.Registry+"/"+key.Repository,
+		"tag", key.Tag,
+		"target_digest", newDigest,
+		"candidates_checked", len(candidates),
+	)
 	o.observeEnrichment(false)
 	return "", false
 }

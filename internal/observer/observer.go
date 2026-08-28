@@ -3,6 +3,7 @@ package observer
 
 import (
 	"context"
+	"log/slog"
 	"sort"
 	"sync"
 	"time"
@@ -126,6 +127,7 @@ func (o *Observer) Check(ctx context.Context) ([]Result, error) {
 	}
 
 	groups := groupContainers(containers)
+	slog.Debug("check: containers enumerated", "count", len(containers), "groups", len(groups))
 	if len(groups) == 0 {
 		return nil, nil
 	}
@@ -185,9 +187,15 @@ func groupContainers(containers []iwruntime.ContainerObservation) map[groupKey][
 	groups := make(map[groupKey][]iwruntime.ContainerObservation)
 	for _, c := range containers {
 		if c.Image.IsDigestPinned() || c.Image.Tag == nil {
+			slog.Debug("groupContainers: skipping digest-pinned/tagless image",
+				"container", c.Name, "image", c.Image.String(),
+			)
 			continue
 		}
 		if c.Labels[skipLabel] == "true" {
+			slog.Debug("groupContainers: skipping container with skip label",
+				"container", c.Name,
+			)
 			continue
 		}
 		key := groupKey{
@@ -227,6 +235,9 @@ func (o *Observer) checkGroup(ctx context.Context, key groupKey, members []iwrun
 
 	previous, found, storeErr := o.Store.GetObservation(ctx, key.stateKey())
 	if storeErr != nil {
+		slog.Debug("checkGroup: failed to read previous observation",
+			"image", key.Registry+"/"+key.Repository, "tag", key.Tag, "error", storeErr,
+		)
 		result.Partial = true
 	}
 
@@ -257,6 +268,9 @@ func (o *Observer) checkGroup(ctx context.Context, key groupKey, members []iwrun
 	// Not returning early on PutObservation errors: a storage failure
 	// shouldn't discard already-detected events for this cycle
 	if err := o.Store.PutObservation(ctx, newObs); err != nil {
+		slog.Debug("checkGroup: failed to persist observation",
+			"image", key.Registry+"/"+key.Repository, "tag", key.Tag, "error", err,
+		)
 		result.Partial = true
 	}
 
@@ -283,6 +297,24 @@ func (o *Observer) checkGroup(ctx context.Context, key groupKey, members []iwrun
 		result.Partial = true
 	}
 
+	if result.Err != nil {
+		slog.Debug("image check failed",
+			"image", key.Registry+"/"+key.Repository,
+			"tag", key.Tag,
+			"platform", key.Platform.String(),
+			"error", result.Err,
+			"stale", result.Stale,
+		)
+	} else {
+		slog.Debug("image checked",
+			"image", key.Registry+"/"+key.Repository,
+			"tag", key.Tag,
+			"platform", key.Platform.String(),
+			"events", len(result.Events),
+			"partial", result.Partial,
+		)
+	}
+
 	return result
 }
 
@@ -302,12 +334,38 @@ func (o *Observer) markStale(ctx context.Context, key groupKey, checkErr error) 
 
 // detectDigestEvents compares digests over time.
 func (o *Observer) detectDigestEvents(ctx context.Context, reg registry.Registry, key groupKey, tv version.TagVersion, previous state.Observation, found bool, registryObs registry.ManifestObservation, cache *groupCache) []event.Event {
+	slog.Debug("detectDigestEvents: evaluating",
+		"image", key.Registry+"/"+key.Repository,
+		"tag", key.Tag,
+		"platform", key.Platform.String(),
+		"found_previous", found,
+		"previous_digest", previous.PlatformManifestDigest,
+		"current_digest", registryObs.PlatformManifestDigest,
+	)
 	if !found || previous.PlatformManifestDigest == "" || registryObs.PlatformManifestDigest == "" {
+		slog.Debug("detectDigestEvents: skipping - missing prior observation or digest",
+			"found", found,
+			"prev_digest", previous.PlatformManifestDigest,
+			"new_digest", registryObs.PlatformManifestDigest,
+		)
 		return nil
 	}
 	if previous.PlatformManifestDigest == registryObs.PlatformManifestDigest {
+		slog.Debug("detectDigestEvents: no transition - digest unchanged",
+			"image", key.Registry+"/"+key.Repository,
+			"tag", key.Tag,
+			"digest", registryObs.PlatformManifestDigest,
+		)
 		return nil
 	}
+
+	slog.Debug("digest transition detected",
+		"image", key.Registry+"/"+key.Repository,
+		"tag", key.Tag,
+		"platform", key.Platform.String(),
+		"old_digest", previous.PlatformManifestDigest,
+		"new_digest", registryObs.PlatformManifestDigest,
+	)
 
 	ev := event.Event{
 		Timestamp:       o.now(),
@@ -323,6 +381,10 @@ func (o *Observer) detectDigestEvents(ctx context.Context, reg registry.Registry
 		// Best-effort enrichment.
 		if inferredTag, ok := o.attemptEnrichment(ctx, reg, key, registryObs.PlatformManifestDigest, cache); ok {
 			ev.CandidateTag = inferredTag
+			slog.Debug("detectDigestEvents: enrichment succeeded",
+				"image", key.Registry+"/"+key.Repository,
+				"inferred_tag", inferredTag,
+			)
 		}
 	}
 
@@ -357,8 +419,20 @@ func (o *Observer) detectDigestDriftEvents(ctx context.Context, reg registry.Reg
 		distinct = append(distinct, dig)
 	}
 	if len(distinct) == 0 {
+		slog.Debug("detectDigestDriftEvents: no drift",
+			"image", key.Registry+"/"+key.Repository,
+			"tag", key.Tag,
+			"served_digest", served,
+		)
 		return nil
 	}
+
+	slog.Debug("detectDigestDriftEvents: drift detected",
+		"image", key.Registry+"/"+key.Repository,
+		"tag", key.Tag,
+		"served_digest", served,
+		"drifted_digests", distinct,
+	)
 
 	// Enrichment for each drifted digest is independent, so run the scans
 	// concurrently, bounded by the same worker budget.

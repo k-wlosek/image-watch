@@ -239,7 +239,7 @@ func TestCommand_DaemonLifecycle(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(out.String(), "shutting down") {
-		t.Errorf("stdout = %q, want a shutdown line", out.String())
+	if !strings.Contains(errOut.String(), "shutting down") {
+		t.Errorf("stderr = %q, want a shutdown line", errOut.String())
 	}
 }

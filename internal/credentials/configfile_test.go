@@ -1,9 +1,10 @@
 package credentials
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
-	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,13 @@ func writeAuthFile(t *testing.T, content string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// captureSlog sets up slog to write to a buffer and returns it.
+func captureSlog() *bytes.Buffer {
+	var buf bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	return &buf
 }
 
 func TestDecodeBasicAuth(t *testing.T) {
@@ -98,17 +106,14 @@ func TestConfigFile_Malformed(t *testing.T) {
 
 func TestConfigFileSource_LogsMalformedConfig(t *testing.T) {
 	path := writeAuthFile(t, `not json`)
-	var logged string
-	c := ConfigFileSource{
-		Paths: []string{path},
-		Logf:  func(format string, args ...any) { logged = fmt.Sprintf(format, args...) },
-	}
+	buf := captureSlog()
+	c := ConfigFileSource{Paths: []string{path}}
 	c.Lookup(context.Background(), "ghcr.io")
-	if logged == "" {
+	if buf.Len() == 0 {
 		t.Fatal("expected a log message for a malformed config file")
 	}
-	if !strings.Contains(logged, path) {
-		t.Errorf("log message should contain the file path, got: %s", logged)
+	if !strings.Contains(buf.String(), path) {
+		t.Errorf("log message should contain the file path, got: %s", buf.String())
 	}
 }
 
@@ -119,20 +124,17 @@ func TestConfigFileSource_LogsCredHelperFailure(t *testing.T) {
 		"credHelpers":{"ghcr.io":"nonexistent-helper"}
 	}`)
 
-	var logged string
-	c := ConfigFileSource{
-		Paths: []string{path},
-		Logf:  func(format string, args ...any) { logged = fmt.Sprintf(format, args...) },
-	}
+	buf := captureSlog()
+	c := ConfigFileSource{Paths: []string{path}}
 	u, p, ok := c.Lookup(context.Background(), "ghcr.io")
 	if !ok || u != "static-user" || p != "static-pass" {
 		t.Fatalf("got %q %q %v, want fallback to static auths", u, p, ok)
 	}
-	if logged == "" {
+	if buf.Len() == 0 {
 		t.Fatal("expected a log message for a failed credHelper")
 	}
-	if !strings.Contains(logged, "nonexistent-helper") {
-		t.Errorf("log message should mention the helper name, got: %s", logged)
+	if !strings.Contains(buf.String(), "nonexistent-helper") {
+		t.Errorf("log message should mention the helper name, got: %s", buf.String())
 	}
 }
 
@@ -143,26 +145,23 @@ func TestConfigFileSource_LogsCredsStoreFailure(t *testing.T) {
 		"credsStore":"nonexistent-store"
 	}`)
 
-	var logged string
-	c := ConfigFileSource{
-		Paths: []string{path},
-		Logf:  func(format string, args ...any) { logged = fmt.Sprintf(format, args...) },
-	}
+	buf := captureSlog()
+	c := ConfigFileSource{Paths: []string{path}}
 	u, p, ok := c.Lookup(context.Background(), "ghcr.io")
 	if !ok || u != "static-user" || p != "static-pass" {
 		t.Fatalf("got %q %q %v, want fallback to static auths", u, p, ok)
 	}
-	if logged == "" {
+	if buf.Len() == 0 {
 		t.Fatal("expected a log message for a failed credsStore")
 	}
-	if !strings.Contains(logged, "nonexistent-store") {
-		t.Errorf("log message should mention the store name, got: %s", logged)
+	if !strings.Contains(buf.String(), "nonexistent-store") {
+		t.Errorf("log message should mention the store name, got: %s", buf.String())
 	}
 }
 
-func TestConfigFileSource_NoLogfWhenNil(t *testing.T) {
+func TestConfigFileSource_NoPanicWithoutLogf(t *testing.T) {
 	path := writeAuthFile(t, `{"credsStore":"nonexistent"}`)
 	c := ConfigFileSource{Paths: []string{path}}
-	// Must not panic with nil Logf
+	// Must not panic
 	_, _, _ = c.Lookup(context.Background(), "ghcr.io")
 }

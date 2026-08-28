@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -94,6 +95,7 @@ func (c *Client) ListContainers(ctx context.Context) ([]runtime.ContainerObserva
 	if err != nil {
 		return nil, err
 	}
+	slog.Debug("docker: containers listed from API", "count", len(containers))
 
 	imageCache := make(map[string]imageInspect)
 	inspectFailed := make(map[string]bool)
@@ -109,6 +111,7 @@ func (c *Client) ListContainers(ctx context.Context) ([]runtime.ContainerObserva
 		if !ok {
 			insp, err = c.inspectImage(ctx, cs.ImageID)
 			if err != nil {
+				slog.Debug("image inspect failed, using summary", "image", cs.Image, "error", err)
 				// Skip enrichment for this container.
 				observations = append(observations, observationFromSummaryOnly(cs))
 				continue
@@ -118,12 +121,16 @@ func (c *Client) ListContainers(ctx context.Context) ([]runtime.ContainerObserva
 
 		obs, err := observationFromSummaryAndImage(cs, insp)
 		if err != nil {
+			slog.Debug("docker: unparseable image reference, skipping",
+				"container", containerName(cs), "image", cs.Image, "error", err,
+			)
 			// Skip unparseable image references.
 			continue
 		}
 		observations = append(observations, obs)
 	}
 
+	slog.Debug("docker: observations produced", "count", len(observations))
 	return backfillPlatforms(observations), nil
 }
 
@@ -152,8 +159,11 @@ func backfillPlatforms(observations []runtime.ContainerObservation) []runtime.Co
 		if p, ok := known[key]; ok {
 			o.Platform = p
 			result = append(result, o)
+		} else {
+			slog.Debug("docker: dropping container with unknown platform and no sibling",
+				"container", o.Name, "image", o.Image.String(),
+			)
 		}
-		// else: no sibling to borrow from -- dropped.
 	}
 	return result
 }
@@ -179,12 +189,19 @@ func observationFromSummaryAndImage(cs containerSummary, insp imageInspect) (run
 		return runtime.ContainerObservation{}, err
 	}
 
+	digest := matchRepoDigest(insp.RepoDigests, ref.Repository)
+	if digest == "" {
+		slog.Debug("docker: no repo digest match",
+			"container", containerName(cs), "repository", ref.Repository, "repo_digests", insp.RepoDigests,
+		)
+	}
+
 	return runtime.ContainerObservation{
 		Runtime: "docker",
 		ID:      cs.ID,
 		Name:    containerName(cs),
 		Image:   ref,
-		Digest:  matchRepoDigest(insp.RepoDigests, ref.Repository),
+		Digest:  digest,
 		Platform: iwimage.Platform{
 			OS:           insp.Os,
 			Architecture: insp.Architecture,

@@ -1,9 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
-	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -119,18 +120,11 @@ func (r *recordingNotifier) items() []notify.Item {
 	return out
 }
 
-func TestLogf_UsesOverride(t *testing.T) {
-	var got []string
-	d := &Daemon{Logf: func(format string, args ...any) { got = append(got, fmt.Sprintf(format, args...)) }}
-	d.logf("hello %s", "world")
-	if len(got) != 1 || got[0] != "hello world" {
-		t.Errorf("expected override to receive the formatted line, got %v", got)
-	}
-}
-
-func TestLogf_DefaultsToStdout(t *testing.T) {
-	d := &Daemon{}
-	d.logf("no override", 1) // must not panic
+// captureSlog sets up slog to write to a buffer and returns it.
+func captureSlog() *bytes.Buffer {
+	var buf bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	return &buf
 }
 
 func TestCountEvents(t *testing.T) {
@@ -203,14 +197,13 @@ func TestRunCycle_SuccessfulCycle(t *testing.T) {
 		testObservation("foo1", "ghcr.io/acme/foo:1.2.3", "sha256:current"),
 	}}
 	n := &recordingNotifier{}
-	var logs []string
+	buf := captureSlog()
 	d := newTestDaemon(rt, reg, metrics.New(), []notify.Notifier{n})
-	d.Logf = func(format string, args ...any) { logs = append(logs, fmt.Sprintf(format, args...)) }
 
 	d.runCycle(context.Background())
 
-	if len(logs) == 0 || !strings.Contains(strings.Join(logs, " "), "check complete: 1 image(s) checked, 0 failed") {
-		t.Errorf("expected completion log, got %v", logs)
+	if !strings.Contains(buf.String(), "check complete") || !strings.Contains(buf.String(), "images=1") {
+		t.Errorf("expected completion log, got %s", buf.String())
 	}
 	items := n.items()
 	if len(items) != 1 || items[0].Type != event.PatchAvailable {
@@ -224,15 +217,13 @@ func TestRunCycle_SuccessfulCycle(t *testing.T) {
 func TestRunCycle_CheckFailure(t *testing.T) {
 	rt := &fakeRuntimeList{err: errors.New("runtime down")}
 	n := &recordingNotifier{}
-	var logs []string
+	buf := captureSlog()
 	d := newTestDaemon(rt, &fakeRegistryList{}, metrics.New(), []notify.Notifier{n})
-	d.Logf = func(format string, args ...any) { logs = append(logs, fmt.Sprintf(format, args...)) }
 
 	d.runCycle(context.Background())
 
-	joined := strings.Join(logs, " ")
-	if !strings.Contains(joined, "check cycle failed") || !strings.Contains(joined, "runtime down") {
-		t.Errorf("expected failure log, got %v", logs)
+	if !strings.Contains(buf.String(), "check cycle failed") || !strings.Contains(buf.String(), "runtime down") {
+		t.Errorf("expected failure log, got %s", buf.String())
 	}
 }
 
@@ -242,15 +233,13 @@ func TestRunCycle_DriftLogged(t *testing.T) {
 		testObservation("stale1", "ghcr.io/acme/foo:1.2.3", "sha256:old"),
 	}}
 	n := &recordingNotifier{}
-	var logs []string
+	buf := captureSlog()
 	d := newTestDaemon(rt, reg, metrics.New(), []notify.Notifier{n})
-	d.Logf = func(format string, args ...any) { logs = append(logs, fmt.Sprintf(format, args...)) }
 
 	d.runCycle(context.Background())
 
-	joined := strings.Join(logs, " ")
-	if !strings.Contains(joined, "drift:") || !strings.Contains(joined, "stale1=sha256:old") {
-		t.Errorf("expected drift entry in logs, got %v", logs)
+	if !strings.Contains(buf.String(), "digest drift") || !strings.Contains(buf.String(), "stale1") {
+		t.Errorf("expected drift entry in logs, got %s", buf.String())
 	}
 }
 
@@ -275,14 +264,13 @@ func TestRunCycle_NotificationFailure(t *testing.T) {
 		testObservation("foo1", "ghcr.io/acme/foo:1.2.3", "sha256:current"),
 	}}
 	n := &recordingNotifier{failAfter: -1}
-	var logs []string
+	buf := captureSlog()
 	d := newTestDaemon(rt, reg, metrics.New(), []notify.Notifier{n})
-	d.Logf = func(format string, args ...any) { logs = append(logs, fmt.Sprintf(format, args...)) }
 
 	d.runCycle(context.Background())
 
-	if !strings.Contains(strings.Join(logs, " "), "notification delivery had errors") {
-		t.Errorf("expected delivery error log, got %v", logs)
+	if !strings.Contains(buf.String(), "notification delivery failed") {
+		t.Errorf("expected delivery error log, got %s", buf.String())
 	}
 }
 
@@ -337,10 +325,9 @@ func TestRun_TickerTriggersSubsequentCycles(t *testing.T) {
 		testObservation("foo1", "ghcr.io/acme/foo:1.2.3", "sha256:current"),
 	}}
 	n := &recordingNotifier{}
-	var logs []string
+	buf := captureSlog()
 	d := newTestDaemon(rt, reg, nil, []notify.Notifier{n})
 	d.Config.CheckInterval = 5 * time.Millisecond
-	d.Logf = func(format string, args ...any) { logs = append(logs, fmt.Sprintf(format, args...)) }
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -353,13 +340,13 @@ func TestRun_TickerTriggersSubsequentCycles(t *testing.T) {
 	}
 
 	cycles := 0
-	for _, l := range logs {
+	for l := range strings.SplitSeq(buf.String(), "\n") {
 		if strings.Contains(l, "check complete") {
 			cycles++
 		}
 	}
 	if cycles < 2 {
-		t.Errorf("expected at least 2 cycles (immediate + ticker), got %d: %v", cycles, logs)
+		t.Errorf("expected at least 2 cycles (immediate + ticker), got %d", cycles)
 	}
 }
 
@@ -369,16 +356,14 @@ func TestRunCycle_OutageDeliveryFailure(t *testing.T) {
 		testObservation("foo1", "ghcr.io/acme/foo:1.2.3", "sha256:current"),
 	}}
 	n := &recordingNotifier{failAfter: -1}
-	var logs []string
+	buf := captureSlog()
 	d := newTestDaemon(rt, reg, nil, []notify.Notifier{n})
 	d.Config.Notifications.RegistryOutage.Enabled = true
 	d.Config.Notifications.RegistryOutage.ConsecutiveFailures = 1
-	d.Logf = func(format string, args ...any) { logs = append(logs, fmt.Sprintf(format, args...)) }
 
 	d.runCycle(context.Background())
 
-	joined := strings.Join(logs, " ")
-	if !strings.Contains(joined, "registry outage notification failed") {
-		t.Errorf("expected outage delivery failure log, got %v", logs)
+	if !strings.Contains(buf.String(), "registry outage notification failed") {
+		t.Errorf("expected outage delivery failure log, got %s", buf.String())
 	}
 }
