@@ -54,8 +54,9 @@ notifications:
   targets:
     - type: stdout
     - type: ntfy
-      topic: docker-updates
-      priority: high
+      params:
+        topic: docker-updates
+        priority: high
 
 state:
   path: /custom/state.db
@@ -89,8 +90,8 @@ state:
 	if len(cfg.Notifications.Targets) != 2 {
 		t.Fatalf("got %d targets, want 2", len(cfg.Notifications.Targets))
 	}
-	if cfg.Notifications.Targets[1].Priority != "high" {
-		t.Errorf("expected ntfy target priority 'high', got %q", cfg.Notifications.Targets[1].Priority)
+	if cfg.Notifications.Targets[1].Params["priority"] != "high" {
+		t.Errorf("expected ntfy target priority 'high', got %q", cfg.Notifications.Targets[1].Params["priority"])
 	}
 
 	if cfg.State.Path != "/custom/state.db" {
@@ -447,4 +448,149 @@ func TestLoad_NonPositiveIntervalErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected a non-positive check interval to be rejected")
 	}
+}
+
+func TestLoad_LegacyNotificationFormatMigrates(t *testing.T) {
+	path := writeConfig(t, `
+notifications:
+  targets:
+    - type: ntfy
+      topic: docker-updates
+      priority: high
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	if len(cfg.Notifications.Targets) != 1 {
+		t.Fatalf("got %d targets, want 1", len(cfg.Notifications.Targets))
+	}
+	tgt := cfg.Notifications.Targets[0]
+	if tgt.Type != "ntfy" {
+		t.Errorf("Type = %q, want ntfy", tgt.Type)
+	}
+	if tgt.Params["topic"] != "docker-updates" {
+		t.Errorf("Params[topic] = %q, want docker-updates", tgt.Params["topic"])
+	}
+	if tgt.Params["priority"] != "high" {
+		t.Errorf("Params[priority] = %q, want high", tgt.Params["priority"])
+	}
+}
+
+func TestLoad_NewParamsFormat(t *testing.T) {
+	path := writeConfig(t, `
+notifications:
+  targets:
+    - type: ntfy
+      params:
+        topic: my-topic
+        priority: low
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+	tgt := cfg.Notifications.Targets[0]
+	if tgt.Params["topic"] != "my-topic" {
+		t.Errorf("Params[topic] = %q, want my-topic", tgt.Params["topic"])
+	}
+	if tgt.Params["priority"] != "low" {
+		t.Errorf("Params[priority] = %q, want low", tgt.Params["priority"])
+	}
+}
+
+func TestToParams_LegacyFields(t *testing.T) {
+	raw := &rawNotificationTarget{
+		Topic:       "my-topic",
+		ServerURL:   "https://ntfy.sh",
+		UsernameEnv: "USER_ENV",
+		PasswordEnv: "PASS_ENV",
+		Priority:    "high",
+		Title:       "Alerts",
+		URL:         "https://example.com",
+	}
+	got := raw.toParams()
+	expected := map[string]string{
+		"topic":        "my-topic",
+		"server_url":   "https://ntfy.sh",
+		"username_env": "USER_ENV",
+		"password_env": "PASS_ENV",
+		"priority":     "high",
+		"title":        "Alerts",
+		"url":          "https://example.com",
+	}
+	for k, v := range expected {
+		if got[k] != v {
+			t.Errorf("toParams()[%q] = %q, want %q", k, got[k], v)
+		}
+	}
+}
+
+func TestToParams_EmptyFieldsOmitted(t *testing.T) {
+	raw := &rawNotificationTarget{Topic: "t"}
+	got := raw.toParams()
+	if len(got) != 1 {
+		t.Errorf("expected 1 entry, got %d: %v", len(got), got)
+	}
+	if got["topic"] != "t" {
+		t.Errorf("topic = %q, want t", got["topic"])
+	}
+}
+
+func TestHasLegacyFields(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  rawNotificationTarget
+		want bool
+	}{
+		{"no params with topic", rawNotificationTarget{Topic: "t"}, true},
+		{"no params with url", rawNotificationTarget{URL: "http://x"}, true},
+		{"params set", rawNotificationTarget{Params: map[string]string{"k": "v"}}, false},
+		{"all empty", rawNotificationTarget{}, false},
+		{"type only", rawNotificationTarget{Type: "ntfy"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.raw.hasLegacyFields(); got != tc.want {
+				t.Errorf("hasLegacyFields() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPrintMigratedNotifications(t *testing.T) {
+	cfg := &Config{
+		Notifications: NotificationsConfig{
+			Mode: "batch",
+			Targets: []NotificationTarget{
+				{Type: "ntfy", Params: map[string]string{"topic": "docker-updates", "priority": "high"}},
+			},
+		},
+	}
+	// Should not panic.
+	printMigratedNotifications(cfg)
+}
+
+func TestMigrateNotificationTargets_NoMigrationNeeded(t *testing.T) {
+	cfg := &Config{
+		Notifications: NotificationsConfig{
+			Targets: []NotificationTarget{
+				{Type: "ntfy", Params: map[string]string{"topic": "t"}},
+			},
+		},
+	}
+	// Should return early without writing.
+	migrateNotificationTargets(cfg, "/nonexistent/path.yaml")
+}
+
+func TestMigrateNotificationTargets_ParamlessTarget_NoMigration(t *testing.T) {
+	cfg := &Config{
+		Notifications: NotificationsConfig{
+			Targets: []NotificationTarget{
+				{Type: "stdout"},
+			},
+		},
+	}
+	// A param-less target (stdout) must not be treated as legacy format.
+	migrateNotificationTargets(cfg, "/nonexistent/path.yaml")
 }

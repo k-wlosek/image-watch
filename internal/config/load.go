@@ -2,7 +2,9 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/goccy/go-yaml"
@@ -57,6 +59,8 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("config: invalid value in %s: %w", resolvedPath, err)
 	}
 
+	migrateNotificationTargets(&cfg, resolvedPath)
+
 	cfg, err = applyEnvOverrides(cfg)
 	if err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
@@ -67,6 +71,55 @@ func Load(path string) (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// rawNotificationTarget unmarshals a notification target from YAML in either
+// the legacy flat format or the new Params-based format.
+type rawNotificationTarget struct {
+	Type   string            `yaml:"type"`
+	Params map[string]string `yaml:"params"`
+
+	// Legacy flat fields, populated when YAML has no "params" key.
+	ServerURL   string `yaml:"server_url"`
+	Topic       string `yaml:"topic"`
+	UsernameEnv string `yaml:"username_env"`
+	PasswordEnv string `yaml:"password_env"`
+	Priority    string `yaml:"priority"`
+	Title       string `yaml:"title"`
+	URL         string `yaml:"url"`
+}
+
+// hasLegacyFields reports whether this target uses the old flat-field format.
+func (t *rawNotificationTarget) hasLegacyFields() bool {
+	return t.Params == nil && (t.ServerURL != "" || t.Topic != "" || t.UsernameEnv != "" ||
+		t.PasswordEnv != "" || t.Priority != "" || t.Title != "" || t.URL != "")
+}
+
+// toParams converts legacy flat fields into a Params map.
+func (t *rawNotificationTarget) toParams() map[string]string {
+	m := make(map[string]string)
+	if t.Topic != "" {
+		m["topic"] = t.Topic
+	}
+	if t.ServerURL != "" {
+		m["server_url"] = t.ServerURL
+	}
+	if t.UsernameEnv != "" {
+		m["username_env"] = t.UsernameEnv
+	}
+	if t.PasswordEnv != "" {
+		m["password_env"] = t.PasswordEnv
+	}
+	if t.Priority != "" {
+		m["priority"] = t.Priority
+	}
+	if t.Title != "" {
+		m["title"] = t.Title
+	}
+	if t.URL != "" {
+		m["url"] = t.URL
+	}
+	return m
 }
 
 // rawConfig mirrors the YAML shape.
@@ -90,17 +143,8 @@ type rawConfig struct {
 	} `yaml:"policy"`
 
 	Notifications *struct {
-		Mode    string `yaml:"mode"`
-		Targets []struct {
-			Type        string `yaml:"type"`
-			ServerURL   string `yaml:"server_url"`
-			Topic       string `yaml:"topic"`
-			UsernameEnv string `yaml:"username_env"`
-			PasswordEnv string `yaml:"password_env"`
-			Priority    string `yaml:"priority"`
-			Title       string `yaml:"title"`
-			URL         string `yaml:"url"`
-		} `yaml:"targets"`
+		Mode           string                  `yaml:"mode"`
+		Targets        []rawNotificationTarget `yaml:"targets"`
 		RegistryOutage *struct {
 			Enabled             *bool `yaml:"enabled"`
 			ConsecutiveFailures *int  `yaml:"consecutive_failures"`
@@ -179,15 +223,13 @@ func mergeRaw(cfg Config, raw rawConfig) (Config, error) {
 		if raw.Notifications.Targets != nil {
 			cfg.Notifications.Targets = nil
 			for _, t := range raw.Notifications.Targets {
+				params := t.Params
+				if params == nil && t.hasLegacyFields() {
+					params = t.toParams()
+				}
 				cfg.Notifications.Targets = append(cfg.Notifications.Targets, NotificationTarget{
-					Type:        t.Type,
-					ServerURL:   t.ServerURL,
-					Topic:       t.Topic,
-					UsernameEnv: t.UsernameEnv,
-					PasswordEnv: t.PasswordEnv,
-					Priority:    t.Priority,
-					Title:       t.Title,
-					URL:         t.URL,
+					Type:   t.Type,
+					Params: params,
 				})
 			}
 		}
@@ -264,6 +306,81 @@ func setBool(dst *bool, src *bool) {
 	}
 }
 
+// migrateNotificationTargets detects old-format targets and converts them to
+// the new Params-based format. If the config file is writable, the migrated
+// config is saved back. If not (e.g. read-only mount), a warning is logged
+// and the migrated notifications section is printed to stdout.
+func migrateNotificationTargets(cfg *Config, configPath string) {
+	needsMigration := false
+	for _, t := range cfg.Notifications.Targets {
+		if t.Type == "stdout" {
+			continue
+		}
+		if t.Params == nil {
+			needsMigration = true
+			break
+		}
+	}
+	if !needsMigration {
+		return
+	}
+
+	slog.Warn("notification config uses legacy format, migrating to params-based format")
+
+	// Attempt to write back the migrated config.
+	if err := writeMigratedConfig(cfg, configPath); err != nil {
+		slog.Warn("could not save migrated config",
+			"path", configPath, "error", err,
+		)
+		printMigratedNotifications(cfg)
+	}
+}
+
+// writeMigratedConfig attempts to write the full config back to the file.
+func writeMigratedConfig(cfg *Config, configPath string) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal migrated config: %w", err)
+	}
+	return os.WriteFile(configPath, data, 0o644)
+}
+
+// printMigratedNotifications prints the migrated notifications section to stdout.
+func printMigratedNotifications(cfg *Config) {
+	type targetYAML struct {
+		Type   string            `yaml:"type"`
+		Params map[string]string `yaml:"params,omitempty"`
+	}
+	type notificationsYAML struct {
+		Mode    string       `yaml:"mode"`
+		Targets []targetYAML `yaml:"targets"`
+	}
+
+	targets := make([]targetYAML, 0, len(cfg.Notifications.Targets))
+	for _, t := range cfg.Notifications.Targets {
+		targets = append(targets, targetYAML(t))
+	}
+
+	out := notificationsYAML{Mode: cfg.Notifications.Mode, Targets: targets}
+	data, err := yaml.Marshal(out)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "# failed to format migrated config: %v\n", err)
+		return
+	}
+
+	var b strings.Builder
+	b.WriteString("# Notification config has been migrated to the new format.\n")
+	b.WriteString("# Add or replace the following section in your config file:\n\n")
+	b.WriteString("notifications:\n")
+	// Indent the marshaled content by 2 spaces.
+	for line := range strings.SplitSeq(strings.TrimRight(string(data), "\n"), "\n") {
+		b.WriteString("  ")
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	fmt.Fprintln(os.Stderr, b.String())
+}
+
 // applyEnvOverrides applies environment variable overrides.
 func applyEnvOverrides(cfg Config) (Config, error) {
 	if v := os.Getenv("IMAGE_WATCH_CHECK_INTERVAL"); v != "" {
@@ -315,10 +432,8 @@ func validate(cfg Config) error {
 		return fmt.Errorf("notifications.mode must be \"batch\" or \"individual\", got %q", cfg.Notifications.Mode)
 	}
 	for _, t := range cfg.Notifications.Targets {
-		switch t.Type {
-		case "stdout", "ntfy", "webhook":
-		default:
-			return fmt.Errorf("unrecognized notification target type %q", t.Type)
+		if t.Type == "" {
+			return fmt.Errorf("notification target missing type")
 		}
 	}
 	for host, auth := range cfg.Registries {

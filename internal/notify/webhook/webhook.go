@@ -13,6 +13,25 @@ import (
 	"github.com/k-wlosek/image-watch/internal/notify"
 )
 
+func init() {
+	notify.Register("webhook", func(params map[string]string) (notify.Notifier, error) {
+		cfg, err := ParseConfig(params)
+		if err != nil {
+			return nil, err
+		}
+		return New(cfg, nil), nil
+	})
+}
+
+// ParseConfig extracts webhook configuration from a params map.
+func ParseConfig(params map[string]string) (Config, error) {
+	url := params["url"]
+	if url == "" {
+		return Config{}, fmt.Errorf("webhook: url is required")
+	}
+	return Config{URL: url}, nil
+}
+
 // Config configures the webhook notifier.
 type Config struct {
 	URL string

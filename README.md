@@ -117,9 +117,27 @@ IMAGE_WATCH_LOG_FORMAT
 
 ### Notification targets
 
-By default image-watch notifies to stdout. See the [example config](deploy/docker/config.yaml.example)
-for ntfy/webhook configuration. The webhook target POSTs one
-JSON payload per event:
+By default image-watch notifies to stdout. Each target is configured under
+`notifications.targets` with a `type` and a `params` map. Supported types:
+
+| Type       | Required params           | Optional params                                                   |
+| ---------- | ------------------------- | ----------------------------------------------------------------- |
+| `stdout`   | _(none)_                  |                                                                   |
+| `ntfy`     | `topic`                   | `server_url`, `username_env`, `password_env`, `priority`, `title` |
+| `webhook`  | `url`                     |                                                                   |
+| `discord`  | `token_env`, `channel_id` | `auth_method` (`bot` default, or `oauth2`)                        |
+| `slack`    | `token_env`, `channel`    |                                                                   |
+| `telegram` | `token_env`, `chat_id`    |                                                                   |
+| `email`    | `smtp_host`, `from`, `to` | `smtp_port` (default 587), `username_env`, `password_env`         |
+
+Multi-target params (`channel_id`, `channel`, `to`) accept comma-separated lists
+to send the same notification to multiple destinations.
+
+Env-variant params (`*_env`) hold the **name** of an environment variable whose
+value is resolved at runtime - the env var itself is never stored in the config
+file. See the [example config](deploy/docker/config.yaml.example) for usage.
+
+The webhook target POSTs one JSON payload per event:
 
 ```json
 {

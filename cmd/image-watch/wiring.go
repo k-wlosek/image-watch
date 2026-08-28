@@ -15,15 +15,19 @@ import (
 	"github.com/k-wlosek/image-watch/internal/credentials"
 	"github.com/k-wlosek/image-watch/internal/metrics"
 	"github.com/k-wlosek/image-watch/internal/notify"
-	"github.com/k-wlosek/image-watch/internal/notify/ntfy"
-	"github.com/k-wlosek/image-watch/internal/notify/stdout"
-	"github.com/k-wlosek/image-watch/internal/notify/webhook"
 	"github.com/k-wlosek/image-watch/internal/observer"
 	"github.com/k-wlosek/image-watch/internal/policy"
 	"github.com/k-wlosek/image-watch/internal/registry"
 	"github.com/k-wlosek/image-watch/internal/registry/distribution"
 	"github.com/k-wlosek/image-watch/internal/runtime/docker"
 	"github.com/k-wlosek/image-watch/internal/state"
+
+	// Register notification services via init().
+	_ "github.com/k-wlosek/image-watch/internal/notify/ntfy"
+	_ "github.com/k-wlosek/image-watch/internal/notify/services"
+	_ "github.com/k-wlosek/image-watch/internal/notify/webhook"
+
+	"github.com/k-wlosek/image-watch/internal/notify/stdout"
 )
 
 // buildObserver wires the runtime, registry, and store implementations together.
@@ -132,37 +136,18 @@ func buildNotifiers(cfg config.Config) []notify.Notifier {
 
 	var notifiers []notify.Notifier
 	for _, t := range cfg.Notifications.Targets {
-		switch t.Type {
-		case "stdout":
+		if t.Type == "stdout" {
 			notifiers = append(notifiers, stdout.New())
-		case "ntfy":
-			username, password := resolveEnvCredential(t.UsernameEnv, t.PasswordEnv)
-			notifiers = append(notifiers, ntfy.New(ntfy.Config{
-				ServerURL: t.ServerURL,
-				Topic:     t.Topic,
-				Username:  username,
-				Password:  password,
-				Priority:  t.Priority,
-				Title:     t.Title,
-			}, nil))
-		case "webhook":
-			notifiers = append(notifiers, webhook.New(webhook.Config{URL: t.URL}, nil))
-		default:
-			slog.Warn("skipping unknown notification target type", "type", t.Type)
+			continue
 		}
+		n, err := notify.Build(t.Type, t.Params)
+		if err != nil {
+			slog.Warn("skipping notification target", "type", t.Type, "error", err)
+			continue
+		}
+		notifiers = append(notifiers, n)
 	}
 	return notifiers
-}
-
-// resolveEnvCredential reads a username/password pair from environment variables.
-func resolveEnvCredential(usernameEnv, passwordEnv string) (username, password string) {
-	if usernameEnv != "" {
-		username = os.Getenv(usernameEnv)
-	}
-	if passwordEnv != "" {
-		password = os.Getenv(passwordEnv)
-	}
-	return username, password
 }
 
 // buildCredentialChain resolves registry credentials from explicit env

@@ -177,3 +177,58 @@ func TestNotify_RequestFailure(t *testing.T) {
 		t.Fatal("expected a request failure against a closed server")
 	}
 }
+
+func TestParseConfig_MissingTopicReturnsError(t *testing.T) {
+	_, err := ParseConfig(map[string]string{})
+	if err == nil || !strings.Contains(err.Error(), "topic is required") {
+		t.Fatalf("expected 'topic is required' error, got %v", err)
+	}
+}
+
+func TestParseConfig_AllParams(t *testing.T) {
+	t.Setenv("NTFY_TEST_USER", "alice")
+	t.Setenv("NTFY_TEST_PASS", "s3cret")
+
+	cfg, err := ParseConfig(map[string]string{
+		"topic":        "my-topic",
+		"server_url":   "https://ntfy.example.com",
+		"username_env": "NTFY_TEST_USER",
+		"password_env": "NTFY_TEST_PASS",
+		"priority":     "high",
+		"title":        "My Title",
+	})
+	if err != nil {
+		t.Fatalf("ParseConfig error: %v", err)
+	}
+	if cfg.Topic != "my-topic" {
+		t.Errorf("Topic = %q, want my-topic", cfg.Topic)
+	}
+	if cfg.ServerURL != "https://ntfy.example.com" {
+		t.Errorf("ServerURL = %q, want https://ntfy.example.com", cfg.ServerURL)
+	}
+	if cfg.Username != "alice" {
+		t.Errorf("Username = %q, want alice", cfg.Username)
+	}
+	if cfg.Password != "s3cret" {
+		t.Errorf("Password = %q, want s3cret", cfg.Password)
+	}
+	if cfg.Priority != "high" {
+		t.Errorf("Priority = %q, want high", cfg.Priority)
+	}
+	if cfg.Title != "My Title" {
+		t.Errorf("Title = %q, want My Title", cfg.Title)
+	}
+}
+
+func TestParseConfig_OnlyTopicRequired(t *testing.T) {
+	cfg, err := ParseConfig(map[string]string{"topic": "t"})
+	if err != nil {
+		t.Fatalf("ParseConfig error: %v", err)
+	}
+	if cfg.Topic != "t" {
+		t.Errorf("Topic = %q, want t", cfg.Topic)
+	}
+	if cfg.ServerURL != "" {
+		t.Errorf("ServerURL should be empty, got %q", cfg.ServerURL)
+	}
+}

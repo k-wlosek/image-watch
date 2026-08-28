@@ -43,9 +43,15 @@ func TestBuildNotifiers_Targets(t *testing.T) {
 	cfg := config.Default()
 	cfg.Notifications.Targets = []config.NotificationTarget{
 		{Type: "stdout"},
-		{Type: "webhook", URL: "https://example.com/hook"},
-		{Type: "ntfy", ServerURL: "https://ntfy.sh", Topic: "docker-updates",
-			UsernameEnv: "NTFY_USER", PasswordEnv: "NTFY_PASS", Priority: "high", Title: "updates"},
+		{Type: "webhook", Params: map[string]string{"url": "https://example.com/hook"}},
+		{Type: "ntfy", Params: map[string]string{
+			"server_url":   "https://ntfy.sh",
+			"topic":        "docker-updates",
+			"username_env": "NTFY_USER",
+			"password_env": "NTFY_PASS",
+			"priority":     "high",
+			"title":        "updates",
+		}},
 	}
 	notifiers := buildNotifiers(cfg)
 	if len(notifiers) != 3 {
@@ -65,28 +71,12 @@ func TestBuildNotifiers_Targets(t *testing.T) {
 func TestBuildNotifiers_SkipsUnknownTypes(t *testing.T) {
 	cfg := config.Default()
 	cfg.Notifications.Targets = []config.NotificationTarget{
-		{Type: "email"},
+		{Type: "unknown_service"},
 		{Type: "stdout"},
 	}
 	notifiers := buildNotifiers(cfg)
 	if len(notifiers) != 1 {
 		t.Errorf("expected the unknown type to be skipped, got %d notifiers", len(notifiers))
-	}
-}
-
-func TestResolveEnvCredential(t *testing.T) {
-	t.Setenv("IW_TEST_USER", "alice")
-	t.Setenv("IW_TEST_PASS", "secret")
-
-	u, p := resolveEnvCredential("IW_TEST_USER", "IW_TEST_PASS")
-	if u != "alice" || p != "secret" {
-		t.Errorf("got %q/%q, want alice/secret", u, p)
-	}
-	if u, p := resolveEnvCredential("", "IW_TEST_PASS"); u != "" || p != "secret" {
-		t.Errorf("empty username env should resolve to empty, got %q/%q", u, p)
-	}
-	if u, p := resolveEnvCredential("UNSET_VAR_X", "UNSET_VAR_Y"); u != "" || p != "" {
-		t.Errorf("unset env vars should resolve empty, got %q/%q", u, p)
 	}
 }
 

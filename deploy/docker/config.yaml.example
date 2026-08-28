@@ -21,14 +21,37 @@ notifications:
   targets:
     - type: stdout
     - type: ntfy
-      topic: docker-updates
-      title: image updates
-      server_url: https://ntfy.sh # optional
-      username_env: NTFY_USER # optional, set environment variable NTFY_USER to your username to use it
-      password_env: NTFY_PASS # optional, set environment variable NTFY_PASS to your password to use it
-      priority: high # optional
+      params:
+        topic: docker-updates
+        title: image updates
+        server_url: https://ntfy.sh # optional
+        username_env: NTFY_USER # optional, set environment variable NTFY_USER to your username to use it
+        password_env: NTFY_PASS # optional, set environment variable NTFY_PASS to your password to use it
+        priority: high # optional
     - type: webhook
-      url: https://example.com/image-watch
+      params:
+        url: https://example.com/image-watch
+    # - type: discord
+    #   params:
+    #     token_env: DISCORD_TOKEN
+    #     channel_id: "123456789" # comma-separated for multiple channels
+    #     auth_method: bot # "bot" (default) or "oauth2"
+    # - type: slack
+    #   params:
+    #     token_env: SLACK_TOKEN
+    #     channel: "C0123ABCDEF" # comma-separated for multiple channels
+    # - type: telegram
+    #   params:
+    #     token_env: TELEGRAM_TOKEN
+    #     chat_id: "123456789"
+    # - type: email
+    #   params:
+    #     smtp_host: smtp.example.com
+    #     smtp_port: "587" # optional, default 587
+    #     from: image-watch@example.com
+    #     to: "user@example.com,team@example.com"
+    #     username_env: EMAIL_USER
+    #     password_env: EMAIL_PASS
   registry_outage:
     enabled: false
     consecutive_failures: 3

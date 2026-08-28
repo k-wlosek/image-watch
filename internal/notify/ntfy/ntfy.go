@@ -5,12 +5,39 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/k-wlosek/image-watch/internal/notify"
 	"github.com/k-wlosek/image-watch/internal/notify/stdout"
 )
+
+func init() {
+	notify.Register("ntfy", func(params map[string]string) (notify.Notifier, error) {
+		cfg, err := ParseConfig(params)
+		if err != nil {
+			return nil, err
+		}
+		return New(cfg, nil), nil
+	})
+}
+
+// ParseConfig extracts ntfy configuration from a params map.
+func ParseConfig(params map[string]string) (Config, error) {
+	topic := params["topic"]
+	if topic == "" {
+		return Config{}, fmt.Errorf("ntfy: topic is required")
+	}
+	return Config{
+		Topic:     topic,
+		ServerURL: params["server_url"],
+		Username:  os.Getenv(params["username_env"]),
+		Password:  os.Getenv(params["password_env"]),
+		Priority:  params["priority"],
+		Title:     params["title"],
+	}, nil
+}
 
 // defaultServerURL is ntfy's public hosted instance.
 const defaultServerURL = "https://ntfy.sh"

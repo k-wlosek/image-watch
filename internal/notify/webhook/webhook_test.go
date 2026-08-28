@@ -218,3 +218,20 @@ func TestNotify_EmptyItemsSendsNothing(t *testing.T) {
 		t.Error("expected no HTTP request for an empty notification")
 	}
 }
+
+func TestParseConfig_MissingURLReturnsError(t *testing.T) {
+	_, err := ParseConfig(map[string]string{})
+	if err == nil || !strings.Contains(err.Error(), "url is required") {
+		t.Fatalf("expected 'url is required' error, got %v", err)
+	}
+}
+
+func TestParseConfig_HappyPath(t *testing.T) {
+	cfg, err := ParseConfig(map[string]string{"url": "https://example.com/hook"})
+	if err != nil {
+		t.Fatalf("ParseConfig error: %v", err)
+	}
+	if cfg.URL != "https://example.com/hook" {
+		t.Errorf("URL = %q, want https://example.com/hook", cfg.URL)
+	}
+}
