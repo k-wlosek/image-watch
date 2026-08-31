@@ -80,19 +80,19 @@ type rawNotificationTarget struct {
 	Params map[string]string `yaml:"params"`
 
 	// Legacy flat fields, populated when YAML has no "params" key.
-	ServerURL   string `yaml:"server_url"`
-	Topic       string `yaml:"topic"`
-	UsernameEnv string `yaml:"username_env"`
-	PasswordEnv string `yaml:"password_env"`
-	Priority    string `yaml:"priority"`
-	Title       string `yaml:"title"`
-	URL         string `yaml:"url"`
+	ServerURL    string `yaml:"server_url"`
+	Topic        string `yaml:"topic"`
+	UsernameFile string `yaml:"username_file"`
+	PasswordFile string `yaml:"password_file"`
+	Priority     string `yaml:"priority"`
+	Title        string `yaml:"title"`
+	URL          string `yaml:"url"`
 }
 
 // hasLegacyFields reports whether this target uses the old flat-field format.
 func (t *rawNotificationTarget) hasLegacyFields() bool {
-	return t.Params == nil && (t.ServerURL != "" || t.Topic != "" || t.UsernameEnv != "" ||
-		t.PasswordEnv != "" || t.Priority != "" || t.Title != "" || t.URL != "")
+	return t.Params == nil && (t.ServerURL != "" || t.Topic != "" || t.UsernameFile != "" ||
+		t.PasswordFile != "" || t.Priority != "" || t.Title != "" || t.URL != "")
 }
 
 // toParams converts legacy flat fields into a Params map.
@@ -104,11 +104,11 @@ func (t *rawNotificationTarget) toParams() map[string]string {
 	if t.ServerURL != "" {
 		m["server_url"] = t.ServerURL
 	}
-	if t.UsernameEnv != "" {
-		m["username_env"] = t.UsernameEnv
+	if t.UsernameFile != "" {
+		m["username_file"] = t.UsernameFile
 	}
-	if t.PasswordEnv != "" {
-		m["password_env"] = t.PasswordEnv
+	if t.PasswordFile != "" {
+		m["password_file"] = t.PasswordFile
 	}
 	if t.Priority != "" {
 		m["priority"] = t.Priority
@@ -170,10 +170,10 @@ type rawConfig struct {
 	} `yaml:"concurrency"`
 
 	Registries map[string]struct {
-		UsernameEnv string `yaml:"username_env"`
-		PasswordEnv string `yaml:"password_env"`
-		Scheme      string `yaml:"scheme"`
-		CAFile      string `yaml:"ca_file"`
+		UsernameFile string `yaml:"username_file"`
+		PasswordFile string `yaml:"password_file"`
+		Scheme       string `yaml:"scheme"`
+		CAFile       string `yaml:"ca_file"`
 	} `yaml:"registries"`
 
 	Log *struct {
@@ -280,10 +280,10 @@ func mergeRaw(cfg Config, raw rawConfig) (Config, error) {
 		}
 		for host, auth := range raw.Registries {
 			cfg.Registries[host] = RegistryAuthConfig{
-				UsernameEnv: auth.UsernameEnv,
-				PasswordEnv: auth.PasswordEnv,
-				Scheme:      auth.Scheme,
-				CAFile:      auth.CAFile,
+				UsernameFile: auth.UsernameFile,
+				PasswordFile: auth.PasswordFile,
+				Scheme:       auth.Scheme,
+				CAFile:       auth.CAFile,
 			}
 		}
 	}

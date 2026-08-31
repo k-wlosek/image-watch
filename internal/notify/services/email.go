@@ -2,11 +2,11 @@ package services
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
 	"github.com/k-wlosek/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/secret"
 	nlib "github.com/nikoksr/notify"
 	"github.com/nikoksr/notify/service/mail"
 )
@@ -58,8 +58,19 @@ func ParseEmailConfig(params map[string]string) (EmailConfig, error) {
 		to[i] = strings.TrimSpace(to[i])
 	}
 
-	username := os.Getenv(params["username_env"])
-	password := os.Getenv(params["password_env"])
+	var username, password string
+	if p := params["username_file"]; p != "" {
+		username, err = secret.ReadFile(p)
+		if err != nil {
+			return EmailConfig{}, fmt.Errorf("email: username_file: %w", err)
+		}
+	}
+	if p := params["password_file"]; p != "" {
+		password, err = secret.ReadFile(p)
+		if err != nil {
+			return EmailConfig{}, fmt.Errorf("email: password_file: %w", err)
+		}
+	}
 
 	return EmailConfig{
 		SMTPHost:     host,

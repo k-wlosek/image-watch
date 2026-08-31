@@ -25,24 +25,24 @@ notifications:
         topic: docker-updates
         title: image updates
         server_url: https://ntfy.sh # optional
-        username_env: NTFY_USER # optional, set environment variable NTFY_USER to your username to use it
-        password_env: NTFY_PASS # optional, set environment variable NTFY_PASS to your password to use it
+        username_file: /run/secrets/ntfy_username # optional
+        password_file: /run/secrets/ntfy_password # optional
         priority: high # optional
     - type: webhook
       params:
         url: https://example.com/image-watch
     # - type: discord
     #   params:
-    #     token_env: DISCORD_TOKEN
+    #     token_file: /run/secrets/discord_token
     #     channel_id: "123456789" # comma-separated for multiple channels
     #     auth_method: bot # "bot" (default) or "oauth2"
     # - type: slack
     #   params:
-    #     token_env: SLACK_TOKEN
+    #     token_file: /run/secrets/slack_token
     #     channel: "C0123ABCDEF" # comma-separated for multiple channels
     # - type: telegram
     #   params:
-    #     token_env: TELEGRAM_TOKEN
+    #     token_file: /run/secrets/telegram_token
     #     chat_id: "123456789"
     # - type: email
     #   params:
@@ -50,12 +50,12 @@ notifications:
     #     smtp_port: "587" # optional, default 587
     #     from: image-watch@example.com
     #     to: "user@example.com,team@example.com"
-    #     username_env: EMAIL_USER
-    #     password_env: EMAIL_PASS
+    #     username_file: /run/secrets/email_username
+    #     password_file: /run/secrets/email_password
     # - type: amazonsns
     #   params:
-    #     access_key_id_env: AWS_ACCESS_KEY_ID
-    #     secret_key_env: AWS_SECRET_ACCESS_KEY
+    #     access_key_id_file: /run/secrets/aws_access_key_id
+    #     secret_key_file: /run/secrets/aws_secret_access_key
     #     region: eu-west-1
     #     topic: "arn:aws:sns:eu-west-1:123456789:topic1,arn:aws:sns:eu-west-1:123456789:topic2"
     # - type: matrix
@@ -63,34 +63,34 @@ notifications:
     #     user_id: "@imagewatch:matrix.org"
     #     room_id: "!abc123:matrix.org"
     #     home_server: https://matrix.org
-    #     access_token_env: MATRIX_TOKEN
+    #     access_token_file: /run/secrets/matrix_token
     # - type: mattermost
     #   params:
     #     url: https://mattermost.example.com
     #     channel: "channel-id-1,channel-id-2"
-    #     token_env: MATTERMOST_TOKEN # personal access token
+    #     token_file: /run/secrets/mattermost_token # personal access token
     #     # or login credentials:
-    #     # login_id_env: MATTERMOST_LOGIN_ID
-    #     # password_env: MATTERMOST_PASSWORD
+    #     # login_id_file: /run/secrets/mattermost_login_id
+    #     # password_file: /run/secrets/mattermost_password
     # - type: msteams
     #   params:
     #     webhook: "https://example.webhook.office.com/.../a,https://example.webhook.office.com/.../b"
     # - type: pagerduty
     #   params:
-    #     token_env: PAGERDUTY_TOKEN
+    #     token_file: /run/secrets/pagerduty_token
     #     from_address: image-watch@example.com
     #     service: "PABCD123,PXYZ789" # comma-separated service IDs
     #     notification_type: incident # optional, default "incident"
     # - type: pushover
     #   params:
-    #     app_token_env: PUSHOVER_APP_TOKEN
+    #     app_token_file: /run/secrets/pushover_app_token
     #     user: "uz123abc,group456def" # comma-separated recipient keys
     # - type: rocketchat
     #   params:
     #     server_url: chat.example.com
     #     scheme: https # optional, default https
     #     user_id: "imagewatch"
-    #     token_env: ROCKETCHAT_TOKEN
+    #     token_file: /run/secrets/rocketchat_token
     #     channel: "general,alerts" # comma-separated channel names
   registry_outage:
     enabled: false
@@ -117,8 +117,8 @@ log:
 # Optional per-host registry credentials and TLS options:
 registries:
   ghcr.io:
-    username_env: GHCR_USERNAME # optional, set environment variable GHCR_USERNAME to your username to use it
-    password_env: GHCR_PASSWORD # optional, set environment variable GHCR_PASSWORD to your password to use it
+    username_file: /run/secrets/ghcr_username # optional
+    password_file: /run/secrets/ghcr_password # optional
   registry.local:
     scheme: http # http/https, default https
     ca_file: /etc/image-watch/ca.pem # optional, for self-signed certs with https

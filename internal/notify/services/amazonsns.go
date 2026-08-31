@@ -2,10 +2,10 @@ package services
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/k-wlosek/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/secret"
 	nlib "github.com/nikoksr/notify"
 	"github.com/nikoksr/notify/service/amazonsns"
 )
@@ -30,22 +30,28 @@ type AmazonSNSConfig struct {
 
 // ParseAmazonSNSConfig extracts Amazon SNS configuration from a params map.
 func ParseAmazonSNSConfig(params map[string]string) (AmazonSNSConfig, error) {
-	accessKeyEnv := params["access_key_id_env"]
-	if accessKeyEnv == "" {
-		return AmazonSNSConfig{}, fmt.Errorf("amazonsns: access_key_id_env is required")
+	accessKeyFile := params["access_key_id_file"]
+	if accessKeyFile == "" {
+		return AmazonSNSConfig{}, fmt.Errorf("amazonsns: access_key_id_file is required")
 	}
-	accessKey := os.Getenv(accessKeyEnv)
+	accessKey, err := secret.ReadFile(accessKeyFile)
+	if err != nil {
+		return AmazonSNSConfig{}, fmt.Errorf("amazonsns: access_key_id_file: %w", err)
+	}
 	if accessKey == "" {
-		return AmazonSNSConfig{}, fmt.Errorf("amazonsns: env var %q is empty", accessKeyEnv)
+		return AmazonSNSConfig{}, fmt.Errorf("amazonsns: access_key_id_file is empty")
 	}
 
-	secretEnv := params["secret_key_env"]
-	if secretEnv == "" {
-		return AmazonSNSConfig{}, fmt.Errorf("amazonsns: secret_key_env is required")
+	secretFile := params["secret_key_file"]
+	if secretFile == "" {
+		return AmazonSNSConfig{}, fmt.Errorf("amazonsns: secret_key_file is required")
 	}
-	secret := os.Getenv(secretEnv)
-	if secret == "" {
-		return AmazonSNSConfig{}, fmt.Errorf("amazonsns: env var %q is empty", secretEnv)
+	secretKey, err := secret.ReadFile(secretFile)
+	if err != nil {
+		return AmazonSNSConfig{}, fmt.Errorf("amazonsns: secret_key_file: %w", err)
+	}
+	if secretKey == "" {
+		return AmazonSNSConfig{}, fmt.Errorf("amazonsns: secret_key_file is empty")
 	}
 
 	region := params["region"]
@@ -62,7 +68,7 @@ func ParseAmazonSNSConfig(params map[string]string) (AmazonSNSConfig, error) {
 		topics[i] = strings.TrimSpace(topics[i])
 	}
 
-	return AmazonSNSConfig{AccessKeyID: accessKey, SecretKey: secret, Region: region, TopicARNs: topics}, nil
+	return AmazonSNSConfig{AccessKeyID: accessKey, SecretKey: secretKey, Region: region, TopicARNs: topics}, nil
 }
 
 // NewAmazonSNSFromConfig constructs an Amazon SNS notifier from an AmazonSNSConfig.

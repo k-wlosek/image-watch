@@ -150,16 +150,16 @@ func buildNotifiers(cfg config.Config) []notify.Notifier {
 	return notifiers
 }
 
-// buildCredentialChain resolves registry credentials from explicit env
+// buildCredentialChain resolves registry credentials from explicit file
 // config first, then Docker/Podman auth config files.
 func buildCredentialChain(cfg config.Config) distribution.CredentialProvider {
 	reg := make(map[string]credentials.RegistryAuth, len(cfg.Registries))
 	for host, auth := range cfg.Registries {
-		reg[host] = credentials.RegistryAuth{UsernameEnv: auth.UsernameEnv, PasswordEnv: auth.PasswordEnv}
+		reg[host] = credentials.RegistryAuth{UsernameFile: auth.UsernameFile, PasswordFile: auth.PasswordFile}
 	}
 
 	chain := credentials.Chain{
-		credentials.EnvSource{Registries: reg},
+		credentials.FileSource{Registries: reg},
 		credentials.ConfigFileSource{
 			Paths: append(
 				credentials.DockerConfigPaths(),

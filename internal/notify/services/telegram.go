@@ -2,10 +2,10 @@ package services
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 
 	"github.com/k-wlosek/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/secret"
 	nlib "github.com/nikoksr/notify"
 	"github.com/nikoksr/notify/service/telegram"
 )
@@ -28,13 +28,16 @@ type TelegramConfig struct {
 
 // ParseTelegramConfig extracts Telegram configuration from a params map.
 func ParseTelegramConfig(params map[string]string) (TelegramConfig, error) {
-	tokenEnv := params["token_env"]
-	if tokenEnv == "" {
-		return TelegramConfig{}, fmt.Errorf("telegram: token_env is required")
+	tokenFile := params["token_file"]
+	if tokenFile == "" {
+		return TelegramConfig{}, fmt.Errorf("telegram: token_file is required")
 	}
-	token := os.Getenv(tokenEnv)
+	token, err := secret.ReadFile(tokenFile)
+	if err != nil {
+		return TelegramConfig{}, fmt.Errorf("telegram: token_file: %w", err)
+	}
 	if token == "" {
-		return TelegramConfig{}, fmt.Errorf("telegram: env var %q is empty", tokenEnv)
+		return TelegramConfig{}, fmt.Errorf("telegram: token_file is empty")
 	}
 	chatIDStr := params["chat_id"]
 	if chatIDStr == "" {

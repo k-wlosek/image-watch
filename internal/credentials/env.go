@@ -2,28 +2,31 @@ package credentials
 
 import (
 	"context"
-	"os"
+
+	"github.com/k-wlosek/image-watch/internal/secret"
 )
 
-// RegistryAuth names the env vars holding credentials for one host.
+// RegistryAuth names the files holding credentials for one host.
 type RegistryAuth struct {
-	UsernameEnv string
-	PasswordEnv string
+	UsernameFile string
+	PasswordFile string
 }
 
-// EnvSource resolves credentials from environment variables named per
-// host.
-type EnvSource struct {
+// FileSource resolves credentials from secret files per host.
+type FileSource struct {
 	Registries map[string]RegistryAuth
 }
 
-func (e EnvSource) Lookup(_ context.Context, host string) (string, string, bool) {
+func (e FileSource) Lookup(_ context.Context, host string) (string, string, bool) {
 	auth, ok := e.Registries[host]
 	if !ok {
 		return "", "", false
 	}
-	u := os.Getenv(auth.UsernameEnv)
-	p := os.Getenv(auth.PasswordEnv)
+	u, uErr := secret.ReadFile(auth.UsernameFile)
+	p, pErr := secret.ReadFile(auth.PasswordFile)
+	if uErr != nil && pErr != nil {
+		return "", "", false
+	}
 	if u == "" && p == "" {
 		return "", "", false
 	}

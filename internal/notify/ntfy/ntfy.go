@@ -5,12 +5,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/k-wlosek/image-watch/internal/notify"
 	"github.com/k-wlosek/image-watch/internal/notify/stdout"
+	"github.com/k-wlosek/image-watch/internal/secret"
 )
 
 func init() {
@@ -29,14 +29,26 @@ func ParseConfig(params map[string]string) (Config, error) {
 	if topic == "" {
 		return Config{}, fmt.Errorf("ntfy: topic is required")
 	}
-	return Config{
+	cfg := Config{
 		Topic:     topic,
 		ServerURL: params["server_url"],
-		Username:  os.Getenv(params["username_env"]),
-		Password:  os.Getenv(params["password_env"]),
 		Priority:  params["priority"],
 		Title:     params["title"],
-	}, nil
+	}
+	var err error
+	if p := params["username_file"]; p != "" {
+		cfg.Username, err = secret.ReadFile(p)
+		if err != nil {
+			return Config{}, fmt.Errorf("ntfy: username_file: %w", err)
+		}
+	}
+	if p := params["password_file"]; p != "" {
+		cfg.Password, err = secret.ReadFile(p)
+		if err != nil {
+			return Config{}, fmt.Errorf("ntfy: password_file: %w", err)
+		}
+	}
+	return cfg, nil
 }
 
 // defaultServerURL is ntfy's public hosted instance.

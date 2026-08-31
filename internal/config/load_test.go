@@ -121,8 +121,8 @@ func TestLoad_RegistriesParsed(t *testing.T) {
 	path := writeConfig(t, `
 registries:
   ghcr.io:
-    username_env: GHCR_USERNAME
-    password_env: GHCR_PASSWORD
+    username_file: /run/secrets/ghcr_username
+    password_file: /run/secrets/ghcr_password
     scheme: https
     ca_file: /etc/ssl/private-ca.pem
   registry.local:
@@ -136,7 +136,7 @@ registries:
 	if !ok {
 		t.Fatalf("expected ghcr.io registry config to be present")
 	}
-	if auth.UsernameEnv != "GHCR_USERNAME" || auth.PasswordEnv != "GHCR_PASSWORD" {
+	if auth.UsernameFile != "/run/secrets/ghcr_username" || auth.PasswordFile != "/run/secrets/ghcr_password" {
 		t.Errorf("unexpected registry auth config: %+v", auth)
 	}
 	if auth.Scheme != "https" || auth.CAFile != "/etc/ssl/private-ca.pem" {
@@ -501,23 +501,23 @@ notifications:
 
 func TestToParams_LegacyFields(t *testing.T) {
 	raw := &rawNotificationTarget{
-		Topic:       "my-topic",
-		ServerURL:   "https://ntfy.sh",
-		UsernameEnv: "USER_ENV",
-		PasswordEnv: "PASS_ENV",
-		Priority:    "high",
-		Title:       "Alerts",
-		URL:         "https://example.com",
+		Topic:        "my-topic",
+		ServerURL:    "https://ntfy.sh",
+		UsernameFile: "/run/secrets/user",
+		PasswordFile: "/run/secrets/pass",
+		Priority:     "high",
+		Title:        "Alerts",
+		URL:          "https://example.com",
 	}
 	got := raw.toParams()
 	expected := map[string]string{
-		"topic":        "my-topic",
-		"server_url":   "https://ntfy.sh",
-		"username_env": "USER_ENV",
-		"password_env": "PASS_ENV",
-		"priority":     "high",
-		"title":        "Alerts",
-		"url":          "https://example.com",
+		"topic":         "my-topic",
+		"server_url":    "https://ntfy.sh",
+		"username_file": "/run/secrets/user",
+		"password_file": "/run/secrets/pass",
+		"priority":      "high",
+		"title":         "Alerts",
+		"url":           "https://example.com",
 	}
 	for k, v := range expected {
 		if got[k] != v {

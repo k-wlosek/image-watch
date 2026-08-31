@@ -5,12 +5,23 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/k-wlosek/image-watch/internal/event"
 	"github.com/k-wlosek/image-watch/internal/notify"
 )
+
+func writeSecretFile(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
 
 func TestNotify_SendsToConfiguredTopic(t *testing.T) {
 	var gotPath, gotTitle, gotBody string
@@ -186,16 +197,16 @@ func TestParseConfig_MissingTopicReturnsError(t *testing.T) {
 }
 
 func TestParseConfig_AllParams(t *testing.T) {
-	t.Setenv("NTFY_TEST_USER", "alice")
-	t.Setenv("NTFY_TEST_PASS", "s3cret")
+	userFile := writeSecretFile(t, "alice")
+	passFile := writeSecretFile(t, "s3cret")
 
 	cfg, err := ParseConfig(map[string]string{
-		"topic":        "my-topic",
-		"server_url":   "https://ntfy.example.com",
-		"username_env": "NTFY_TEST_USER",
-		"password_env": "NTFY_TEST_PASS",
-		"priority":     "high",
-		"title":        "My Title",
+		"topic":         "my-topic",
+		"server_url":    "https://ntfy.example.com",
+		"username_file": userFile,
+		"password_file": passFile,
+		"priority":      "high",
+		"title":         "My Title",
 	})
 	if err != nil {
 		t.Fatalf("ParseConfig error: %v", err)

@@ -2,10 +2,10 @@ package services
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/k-wlosek/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/secret"
 	nlib "github.com/nikoksr/notify"
 	"github.com/nikoksr/notify/service/rocketchat"
 )
@@ -46,13 +46,16 @@ func ParseRocketChatConfig(params map[string]string) (RocketChatConfig, error) {
 		return RocketChatConfig{}, fmt.Errorf("rocketchat: user_id is required")
 	}
 
-	tokenEnv := params["token_env"]
-	if tokenEnv == "" {
-		return RocketChatConfig{}, fmt.Errorf("rocketchat: token_env is required")
+	tokenFile := params["token_file"]
+	if tokenFile == "" {
+		return RocketChatConfig{}, fmt.Errorf("rocketchat: token_file is required")
 	}
-	token := os.Getenv(tokenEnv)
+	token, err := secret.ReadFile(tokenFile)
+	if err != nil {
+		return RocketChatConfig{}, fmt.Errorf("rocketchat: token_file: %w", err)
+	}
 	if token == "" {
-		return RocketChatConfig{}, fmt.Errorf("rocketchat: env var %q is empty", tokenEnv)
+		return RocketChatConfig{}, fmt.Errorf("rocketchat: token_file is empty")
 	}
 
 	channelStr := params["channel"]

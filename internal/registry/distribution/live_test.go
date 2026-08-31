@@ -111,7 +111,7 @@ func TestLive_ErrorClassification(t *testing.T) {
 
 	// Bogus credentials must fail during the real token exchange against
 	// auth.docker.io, mapping the 401 to the authentication class.
-	bad := New(liveHost, nil, func(host string) (string, string, bool) {
+	bad := New(liveHost, nil, func(ctx context.Context, host string) (string, string, bool) {
 		return "image-watch-live-bad", "image-watch-live-bad", true
 	})
 	if _, err := bad.Resolve(context.Background(), "library/alpine", "latest"); err == nil {

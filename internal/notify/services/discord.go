@@ -2,10 +2,10 @@ package services
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/k-wlosek/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/secret"
 	nlib "github.com/nikoksr/notify"
 	"github.com/nikoksr/notify/service/discord"
 )
@@ -29,13 +29,16 @@ type DiscordConfig struct {
 
 // ParseDiscordConfig extracts Discord configuration from a params map.
 func ParseDiscordConfig(params map[string]string) (DiscordConfig, error) {
-	tokenEnv := params["token_env"]
-	if tokenEnv == "" {
-		return DiscordConfig{}, fmt.Errorf("discord: token_env is required")
+	tokenFile := params["token_file"]
+	if tokenFile == "" {
+		return DiscordConfig{}, fmt.Errorf("discord: token_file is required")
 	}
-	token := os.Getenv(tokenEnv)
+	token, err := secret.ReadFile(tokenFile)
+	if err != nil {
+		return DiscordConfig{}, fmt.Errorf("discord: token_file: %w", err)
+	}
 	if token == "" {
-		return DiscordConfig{}, fmt.Errorf("discord: env var %q is empty", tokenEnv)
+		return DiscordConfig{}, fmt.Errorf("discord: token_file is empty")
 	}
 	channelIDStr := params["channel_id"]
 	if channelIDStr == "" {

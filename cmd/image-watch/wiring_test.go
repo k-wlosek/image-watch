@@ -24,6 +24,15 @@ import (
 	"github.com/k-wlosek/image-watch/internal/state"
 )
 
+func writeSecretFile(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 func TestBuildNotifiers_DefaultsToStdout(t *testing.T) {
 	cfg := config.Default()
 	cfg.Notifications.Targets = nil
@@ -37,20 +46,20 @@ func TestBuildNotifiers_DefaultsToStdout(t *testing.T) {
 }
 
 func TestBuildNotifiers_Targets(t *testing.T) {
-	t.Setenv("NTFY_USER", "user")
-	t.Setenv("NTFY_PASS", "pass")
+	userFile := writeSecretFile(t, "user")
+	passFile := writeSecretFile(t, "pass")
 
 	cfg := config.Default()
 	cfg.Notifications.Targets = []config.NotificationTarget{
 		{Type: "stdout"},
 		{Type: "webhook", Params: map[string]string{"url": "https://example.com/hook"}},
 		{Type: "ntfy", Params: map[string]string{
-			"server_url":   "https://ntfy.sh",
-			"topic":        "docker-updates",
-			"username_env": "NTFY_USER",
-			"password_env": "NTFY_PASS",
-			"priority":     "high",
-			"title":        "updates",
+			"server_url":    "https://ntfy.sh",
+			"topic":         "docker-updates",
+			"username_file": userFile,
+			"password_file": passFile,
+			"priority":      "high",
+			"title":         "updates",
 		}},
 	}
 	notifiers := buildNotifiers(cfg)
@@ -81,13 +90,13 @@ func TestBuildNotifiers_SkipsUnknownTypes(t *testing.T) {
 }
 
 func TestBuildCredentialChain(t *testing.T) {
-	t.Setenv("IW_REG_USER", "reguser")
-	t.Setenv("IW_REG_PASS", "regpass")
+	userFile := writeSecretFile(t, "reguser")
+	passFile := writeSecretFile(t, "regpass")
 
 	cfg := config.Default()
 	cfg.Registries["ghcr.io"] = config.RegistryAuthConfig{
-		UsernameEnv: "IW_REG_USER",
-		PasswordEnv: "IW_REG_PASS",
+		UsernameFile: userFile,
+		PasswordFile: passFile,
 	}
 
 	provider := buildCredentialChain(cfg)
@@ -251,14 +260,14 @@ func TestBuildObserver_InvalidStatePath(t *testing.T) {
 	}
 }
 
-func TestBuildCredentialChain_UnsetEnv(t *testing.T) {
+func TestBuildCredentialChain_MissingFilesNoMatch(t *testing.T) {
 	cfg := config.Default()
 	cfg.Registries["ghcr.io"] = config.RegistryAuthConfig{
-		UsernameEnv: "IW_DOES_NOT_EXIST",
-		PasswordEnv: "IW_ALSO_DOES_NOT_EXIST",
+		UsernameFile: "/nonexistent/user",
+		PasswordFile: "/nonexistent/pass",
 	}
 	provider := buildCredentialChain(cfg)
 	if u, p, ok := provider(context.Background(), "ghcr.io"); ok || u != "" || p != "" {
-		t.Errorf("provider = %q/%q/%v, want empty/empty/false when env vars are unset", u, p, ok)
+		t.Errorf("provider = %q/%q/%v, want empty/empty/false when files are missing", u, p, ok)
 	}
 }

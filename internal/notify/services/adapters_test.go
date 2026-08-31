@@ -2,38 +2,48 @@ package services
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/k-wlosek/image-watch/internal/notify"
 )
 
-func TestParseDiscordConfig_MissingTokenEnv(t *testing.T) {
+func writeSecretFile(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func TestParseDiscordConfig_MissingTokenFile(t *testing.T) {
 	_, err := ParseDiscordConfig(map[string]string{"channel_id": "123"})
-	if err == nil || !strings.Contains(err.Error(), "token_env is required") {
-		t.Fatalf("expected token_env error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "token_file is required") {
+		t.Fatalf("expected token_file error, got %v", err)
 	}
 }
 
-func TestParseDiscordConfig_EmptyTokenEnv(t *testing.T) {
-	t.Setenv("IW_EMPTY_DISCORD", "")
-	_, err := ParseDiscordConfig(map[string]string{"token_env": "IW_EMPTY_DISCORD", "channel_id": "123"})
-	if err == nil || !strings.Contains(err.Error(), "is empty") {
-		t.Fatalf("expected empty env var error, got %v", err)
+func TestParseDiscordConfig_EmptyTokenFile(t *testing.T) {
+	f := writeSecretFile(t, "")
+	_, err := ParseDiscordConfig(map[string]string{"token_file": f, "channel_id": "123"})
+	if err == nil || !strings.Contains(err.Error(), "token_file is empty") {
+		t.Fatalf("expected empty token_file error, got %v", err)
 	}
 }
 
 func TestParseDiscordConfig_MissingChannelID(t *testing.T) {
-	t.Setenv("IW_DISCORD_TOKEN", "tok123")
-	_, err := ParseDiscordConfig(map[string]string{"token_env": "IW_DISCORD_TOKEN"})
+	f := writeSecretFile(t, "tok123")
+	_, err := ParseDiscordConfig(map[string]string{"token_file": f})
 	if err == nil || !strings.Contains(err.Error(), "channel_id is required") {
 		t.Fatalf("expected channel_id error, got %v", err)
 	}
 }
 
 func TestParseDiscordConfig_HappyPath(t *testing.T) {
-	t.Setenv("IW_DISCORD_TOKEN", "tok123")
-	cfg, err := ParseDiscordConfig(map[string]string{"token_env": "IW_DISCORD_TOKEN", "channel_id": "999"})
+	f := writeSecretFile(t, "tok123")
+	cfg, err := ParseDiscordConfig(map[string]string{"token_file": f, "channel_id": "999"})
 	if err != nil {
 		t.Fatalf("ParseDiscordConfig error: %v", err)
 	}
@@ -49,9 +59,9 @@ func TestParseDiscordConfig_HappyPath(t *testing.T) {
 }
 
 func TestParseDiscordConfig_MultipleChannels(t *testing.T) {
-	t.Setenv("IW_DISCORD_TOKEN", "tok123")
+	f := writeSecretFile(t, "tok123")
 	cfg, err := ParseDiscordConfig(map[string]string{
-		"token_env":  "IW_DISCORD_TOKEN",
+		"token_file": f,
 		"channel_id": "111, 222, 333",
 	})
 	if err != nil {
@@ -66,9 +76,9 @@ func TestParseDiscordConfig_MultipleChannels(t *testing.T) {
 }
 
 func TestParseDiscordConfig_OAuth2Auth(t *testing.T) {
-	t.Setenv("IW_DISCORD_TOKEN", "tok123")
+	f := writeSecretFile(t, "tok123")
 	cfg, err := ParseDiscordConfig(map[string]string{
-		"token_env":   "IW_DISCORD_TOKEN",
+		"token_file":  f,
 		"channel_id":  "999",
 		"auth_method": "oauth2",
 	})
@@ -81,9 +91,9 @@ func TestParseDiscordConfig_OAuth2Auth(t *testing.T) {
 }
 
 func TestParseDiscordConfig_InvalidAuthMethod(t *testing.T) {
-	t.Setenv("IW_DISCORD_TOKEN", "tok123")
+	f := writeSecretFile(t, "tok123")
 	_, err := ParseDiscordConfig(map[string]string{
-		"token_env":   "IW_DISCORD_TOKEN",
+		"token_file":  f,
 		"channel_id":  "999",
 		"auth_method": "webhook",
 	})
@@ -92,32 +102,32 @@ func TestParseDiscordConfig_InvalidAuthMethod(t *testing.T) {
 	}
 }
 
-func TestParseSlackConfig_MissingTokenEnv(t *testing.T) {
+func TestParseSlackConfig_MissingTokenFile(t *testing.T) {
 	_, err := ParseSlackConfig(map[string]string{"channel": "#general"})
-	if err == nil || !strings.Contains(err.Error(), "token_env is required") {
-		t.Fatalf("expected token_env error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "token_file is required") {
+		t.Fatalf("expected token_file error, got %v", err)
 	}
 }
 
-func TestParseSlackConfig_EmptyTokenEnv(t *testing.T) {
-	t.Setenv("IW_EMPTY_SLACK", "")
-	_, err := ParseSlackConfig(map[string]string{"token_env": "IW_EMPTY_SLACK", "channel": "#general"})
-	if err == nil || !strings.Contains(err.Error(), "is empty") {
-		t.Fatalf("expected empty env var error, got %v", err)
+func TestParseSlackConfig_EmptyTokenFile(t *testing.T) {
+	f := writeSecretFile(t, "")
+	_, err := ParseSlackConfig(map[string]string{"token_file": f, "channel": "#general"})
+	if err == nil || !strings.Contains(err.Error(), "token_file is empty") {
+		t.Fatalf("expected empty token_file error, got %v", err)
 	}
 }
 
 func TestParseSlackConfig_MissingChannel(t *testing.T) {
-	t.Setenv("IW_SLACK_TOKEN", "tok123")
-	_, err := ParseSlackConfig(map[string]string{"token_env": "IW_SLACK_TOKEN"})
+	f := writeSecretFile(t, "tok123")
+	_, err := ParseSlackConfig(map[string]string{"token_file": f})
 	if err == nil || !strings.Contains(err.Error(), "channel is required") {
 		t.Fatalf("expected channel error, got %v", err)
 	}
 }
 
 func TestParseSlackConfig_HappyPath(t *testing.T) {
-	t.Setenv("IW_SLACK_TOKEN", "tok123")
-	cfg, err := ParseSlackConfig(map[string]string{"token_env": "IW_SLACK_TOKEN", "channel": "C123"})
+	f := writeSecretFile(t, "tok123")
+	cfg, err := ParseSlackConfig(map[string]string{"token_file": f, "channel": "C123"})
 	if err != nil {
 		t.Fatalf("ParseSlackConfig error: %v", err)
 	}
@@ -130,10 +140,10 @@ func TestParseSlackConfig_HappyPath(t *testing.T) {
 }
 
 func TestParseSlackConfig_MultipleChannels(t *testing.T) {
-	t.Setenv("IW_SLACK_TOKEN", "tok123")
+	f := writeSecretFile(t, "tok123")
 	cfg, err := ParseSlackConfig(map[string]string{
-		"token_env": "IW_SLACK_TOKEN",
-		"channel":   "C111, C222",
+		"token_file": f,
+		"channel":    "C111, C222",
 	})
 	if err != nil {
 		t.Fatalf("ParseSlackConfig error: %v", err)
@@ -146,40 +156,40 @@ func TestParseSlackConfig_MultipleChannels(t *testing.T) {
 	}
 }
 
-func TestParseTelegramConfig_MissingTokenEnv(t *testing.T) {
+func TestParseTelegramConfig_MissingTokenFile(t *testing.T) {
 	_, err := ParseTelegramConfig(map[string]string{"chat_id": "123456"})
-	if err == nil || !strings.Contains(err.Error(), "token_env is required") {
-		t.Fatalf("expected token_env error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "token_file is required") {
+		t.Fatalf("expected token_file error, got %v", err)
 	}
 }
 
-func TestParseTelegramConfig_EmptyTokenEnv(t *testing.T) {
-	t.Setenv("IW_EMPTY_TG", "")
-	_, err := ParseTelegramConfig(map[string]string{"token_env": "IW_EMPTY_TG", "chat_id": "123456"})
-	if err == nil || !strings.Contains(err.Error(), "is empty") {
-		t.Fatalf("expected empty env var error, got %v", err)
+func TestParseTelegramConfig_EmptyTokenFile(t *testing.T) {
+	f := writeSecretFile(t, "")
+	_, err := ParseTelegramConfig(map[string]string{"token_file": f, "chat_id": "123456"})
+	if err == nil || !strings.Contains(err.Error(), "token_file is empty") {
+		t.Fatalf("expected empty token_file error, got %v", err)
 	}
 }
 
 func TestParseTelegramConfig_MissingChatID(t *testing.T) {
-	t.Setenv("IW_TG_TOKEN", "tok123")
-	_, err := ParseTelegramConfig(map[string]string{"token_env": "IW_TG_TOKEN"})
+	f := writeSecretFile(t, "tok123")
+	_, err := ParseTelegramConfig(map[string]string{"token_file": f})
 	if err == nil || !strings.Contains(err.Error(), "chat_id is required") {
 		t.Fatalf("expected chat_id error, got %v", err)
 	}
 }
 
 func TestParseTelegramConfig_InvalidChatID(t *testing.T) {
-	t.Setenv("IW_TG_TOKEN", "tok123")
-	_, err := ParseTelegramConfig(map[string]string{"token_env": "IW_TG_TOKEN", "chat_id": "notanumber"})
+	f := writeSecretFile(t, "tok123")
+	_, err := ParseTelegramConfig(map[string]string{"token_file": f, "chat_id": "notanumber"})
 	if err == nil || !strings.Contains(err.Error(), "invalid chat_id") {
 		t.Fatalf("expected invalid chat_id error, got %v", err)
 	}
 }
 
 func TestParseTelegramConfig_HappyPath(t *testing.T) {
-	t.Setenv("IW_TG_TOKEN", "tok123")
-	cfg, err := ParseTelegramConfig(map[string]string{"token_env": "IW_TG_TOKEN", "chat_id": "987654"})
+	f := writeSecretFile(t, "tok123")
+	cfg, err := ParseTelegramConfig(map[string]string{"token_file": f, "chat_id": "987654"})
 	if err != nil {
 		t.Fatalf("ParseTelegramConfig error: %v", err)
 	}
@@ -234,15 +244,15 @@ func TestParseEmailConfig_DefaultPort(t *testing.T) {
 }
 
 func TestParseEmailConfig_HappyPath(t *testing.T) {
-	t.Setenv("IW_EMAIL_USER", "alice")
-	t.Setenv("IW_EMAIL_PASS", "pass123")
+	userFile := writeSecretFile(t, "alice")
+	passFile := writeSecretFile(t, "pass123")
 	cfg, err := ParseEmailConfig(map[string]string{
-		"smtp_host":    "smtp.example.com",
-		"smtp_port":    "465",
-		"from":         "sender@example.com",
-		"to":           "a@example.com, b@example.com",
-		"username_env": "IW_EMAIL_USER",
-		"password_env": "IW_EMAIL_PASS",
+		"smtp_host":     "smtp.example.com",
+		"smtp_port":     "465",
+		"from":          "sender@example.com",
+		"to":            "a@example.com, b@example.com",
+		"username_file": userFile,
+		"password_file": passFile,
 	})
 	if err != nil {
 		t.Fatalf("ParseEmailConfig error: %v", err)
@@ -267,39 +277,38 @@ func TestParseEmailConfig_HappyPath(t *testing.T) {
 	}
 }
 
-func TestParseEmailConfig_UnsetEnvVarsAreEmpty(t *testing.T) {
-	os.Unsetenv("IW_NONEXISTENT_USER")
-	os.Unsetenv("IW_NONEXISTENT_PASS")
+func TestParseEmailConfig_OmittedEnvFilesAreEmpty(t *testing.T) {
 	cfg, err := ParseEmailConfig(map[string]string{
-		"smtp_host":    "smtp.example.com",
-		"from":         "a@b.com",
-		"to":           "c@d.com",
-		"username_env": "IW_NONEXISTENT_USER",
-		"password_env": "IW_NONEXISTENT_PASS",
+		"smtp_host": "smtp.example.com",
+		"from":      "a@b.com",
+		"to":        "c@d.com",
 	})
 	if err != nil {
 		t.Fatalf("ParseEmailConfig error: %v", err)
 	}
 	if cfg.SMTPUsername != "" {
-		t.Errorf("SMTPUsername should be empty for unset env, got %q", cfg.SMTPUsername)
+		t.Errorf("SMTPUsername should be empty when no username_file provided, got %q", cfg.SMTPUsername)
+	}
+	if cfg.SMTPPassword != "" {
+		t.Errorf("SMTPPassword should be empty when no password_file provided, got %q", cfg.SMTPPassword)
 	}
 }
 
-func TestParseAmazonSNSConfig_MissingAccessKeyEnv(t *testing.T) {
-	_, err := ParseAmazonSNSConfig(map[string]string{"secret_key_env": "S", "region": "eu-west-1", "topic": "arn:1"})
-	if err == nil || !strings.Contains(err.Error(), "access_key_id_env is required") {
-		t.Fatalf("expected access_key_id_env error, got %v", err)
+func TestParseAmazonSNSConfig_MissingAccessKeyFile(t *testing.T) {
+	_, err := ParseAmazonSNSConfig(map[string]string{"secret_key_file": "f", "region": "eu-west-1", "topic": "arn:1"})
+	if err == nil || !strings.Contains(err.Error(), "access_key_id_file is required") {
+		t.Fatalf("expected access_key_id_file error, got %v", err)
 	}
 }
 
 func TestParseAmazonSNSConfig_HappyPath(t *testing.T) {
-	t.Setenv("IW_AWS_AK", "ak")
-	t.Setenv("IW_AWS_SK", "sk")
+	akFile := writeSecretFile(t, "ak")
+	skFile := writeSecretFile(t, "sk")
 	cfg, err := ParseAmazonSNSConfig(map[string]string{
-		"access_key_id_env": "IW_AWS_AK",
-		"secret_key_env":    "IW_AWS_SK",
-		"region":            "eu-west-1",
-		"topic":             "arn:aws:sns:r:t1, arn:aws:sns:r:t2",
+		"access_key_id_file": akFile,
+		"secret_key_file":    skFile,
+		"region":             "eu-west-1",
+		"topic":              "arn:aws:sns:r:t1, arn:aws:sns:r:t2",
 	})
 	if err != nil {
 		t.Fatalf("ParseAmazonSNSConfig error: %v", err)
@@ -314,17 +323,18 @@ func TestParseAmazonSNSConfig_HappyPath(t *testing.T) {
 
 func TestParseMatrixConfig_MissingFields(t *testing.T) {
 	cases := map[string]string{
-		"user_id":          "matrix: user_id is required",
-		"room_id":          "matrix: room_id is required",
-		"home_server":      "matrix: home_server is required",
-		"access_token_env": "matrix: access_token_env is required",
+		"user_id":           "matrix: user_id is required",
+		"room_id":           "matrix: room_id is required",
+		"home_server":       "matrix: home_server is required",
+		"access_token_file": "matrix: access_token_file is required",
 	}
 	for missing, want := range cases {
+		f := writeSecretFile(t, "tok")
 		base := map[string]string{
-			"user_id":          "u",
-			"room_id":          "r",
-			"home_server":      "https://matrix.org",
-			"access_token_env": "IW_MX",
+			"user_id":           "u",
+			"room_id":           "r",
+			"home_server":       "https://matrix.org",
+			"access_token_file": f,
 		}
 		delete(base, missing)
 		_, err := ParseMatrixConfig(base)
@@ -335,12 +345,12 @@ func TestParseMatrixConfig_MissingFields(t *testing.T) {
 }
 
 func TestParseMatrixConfig_HappyPath(t *testing.T) {
-	t.Setenv("IW_MX", "tok")
+	f := writeSecretFile(t, "tok")
 	cfg, err := ParseMatrixConfig(map[string]string{
-		"user_id":          "@u:matrix.org",
-		"room_id":          "!r:matrix.org",
-		"home_server":      "https://matrix.org",
-		"access_token_env": "IW_MX",
+		"user_id":           "@u:matrix.org",
+		"room_id":           "!r:matrix.org",
+		"home_server":       "https://matrix.org",
+		"access_token_file": f,
 	})
 	if err != nil {
 		t.Fatalf("ParseMatrixConfig error: %v", err)
@@ -351,12 +361,12 @@ func TestParseMatrixConfig_HappyPath(t *testing.T) {
 }
 
 func TestParseMattermostConfig_RequiresURLAndChannel(t *testing.T) {
-	_, err := ParseMattermostConfig(map[string]string{"token_env": "IW_MM"})
+	_, err := ParseMattermostConfig(map[string]string{"token_file": "f"})
 	if err == nil || !strings.Contains(err.Error(), "url is required") {
 		t.Fatalf("expected url error, got %v", err)
 	}
-	t.Setenv("IW_MM", "tok")
-	_, err = ParseMattermostConfig(map[string]string{"url": "https://mm.example.com", "token_env": "IW_MM"})
+	f := writeSecretFile(t, "tok")
+	_, err = ParseMattermostConfig(map[string]string{"url": "https://mm.example.com", "token_file": f})
 	if err == nil || !strings.Contains(err.Error(), "channel is required") {
 		t.Fatalf("expected channel error, got %v", err)
 	}
@@ -364,15 +374,16 @@ func TestParseMattermostConfig_RequiresURLAndChannel(t *testing.T) {
 
 func TestParseMattermostConfig_NeitherAuth(t *testing.T) {
 	_, err := ParseMattermostConfig(map[string]string{"url": "https://mm.example.com", "channel": "c1"})
-	if err == nil || !strings.Contains(err.Error(), "token_env or login_id_env is required") {
+	if err == nil || !strings.Contains(err.Error(), "token_file or login_id_file is required") {
 		t.Fatalf("expected auth error, got %v", err)
 	}
 }
 
 func TestParseMattermostConfig_BothAuth(t *testing.T) {
+	f := writeSecretFile(t, "tok")
 	_, err := ParseMattermostConfig(map[string]string{
 		"url": "https://mm.example.com", "channel": "c1",
-		"token_env": "IW_MM", "login_id_env": "IW_MML",
+		"token_file": f, "login_id_file": f,
 	})
 	if err == nil || !strings.Contains(err.Error(), "not both") {
 		t.Fatalf("expected both-auth error, got %v", err)
@@ -380,9 +391,9 @@ func TestParseMattermostConfig_BothAuth(t *testing.T) {
 }
 
 func TestParseMattermostConfig_TokenMode(t *testing.T) {
-	t.Setenv("IW_MM", "pat")
+	f := writeSecretFile(t, "pat")
 	cfg, err := ParseMattermostConfig(map[string]string{
-		"url": "https://mm.example.com", "channel": "c1, c2", "token_env": "IW_MM",
+		"url": "https://mm.example.com", "channel": "c1, c2", "token_file": f,
 	})
 	if err != nil {
 		t.Fatalf("ParseMattermostConfig error: %v", err)
@@ -393,11 +404,11 @@ func TestParseMattermostConfig_TokenMode(t *testing.T) {
 }
 
 func TestParseMattermostConfig_LoginMode(t *testing.T) {
-	t.Setenv("IW_MML", "alice")
-	t.Setenv("IW_MMP", "pw")
+	loginFile := writeSecretFile(t, "alice")
+	passFile := writeSecretFile(t, "pw")
 	cfg, err := ParseMattermostConfig(map[string]string{
 		"url": "https://mm.example.com", "channel": "c1",
-		"login_id_env": "IW_MML", "password_env": "IW_MMP",
+		"login_id_file": loginFile, "password_file": passFile,
 	})
 	if err != nil {
 		t.Fatalf("ParseMattermostConfig error: %v", err)
@@ -424,10 +435,18 @@ func TestParseMSTeamsConfig_HappyPath(t *testing.T) {
 	}
 }
 
+func TestParsePagerDutyConfig_MissingService(t *testing.T) {
+	f := writeSecretFile(t, "routing")
+	_, err := ParsePagerDutyConfig(map[string]string{"token_file": f, "from_address": "ops@example.com"})
+	if err == nil || !strings.Contains(err.Error(), "service is required") {
+		t.Fatalf("expected service error, got %v", err)
+	}
+}
+
 func TestParsePagerDutyConfig_HappyPath(t *testing.T) {
-	t.Setenv("IW_PD", "routing")
+	f := writeSecretFile(t, "routing")
 	cfg, err := ParsePagerDutyConfig(map[string]string{
-		"token_env": "IW_PD", "from_address": "ops@example.com", "service": "P123, P456",
+		"token_file": f, "from_address": "ops@example.com", "service": "P123, P456",
 	})
 	if err != nil {
 		t.Fatalf("ParsePagerDutyConfig error: %v", err)
@@ -440,17 +459,9 @@ func TestParsePagerDutyConfig_HappyPath(t *testing.T) {
 	}
 }
 
-func TestParsePagerDutyConfig_MissingService(t *testing.T) {
-	t.Setenv("IW_PD", "routing")
-	_, err := ParsePagerDutyConfig(map[string]string{"token_env": "IW_PD", "from_address": "ops@example.com"})
-	if err == nil || !strings.Contains(err.Error(), "service is required") {
-		t.Fatalf("expected service error, got %v", err)
-	}
-}
-
 func TestParsePushoverConfig_HappyPath(t *testing.T) {
-	t.Setenv("IW_PO", "app")
-	cfg, err := ParsePushoverConfig(map[string]string{"app_token_env": "IW_PO", "user": "u1, u2"})
+	f := writeSecretFile(t, "app")
+	cfg, err := ParsePushoverConfig(map[string]string{"app_token_file": f, "user": "u1, u2"})
 	if err != nil {
 		t.Fatalf("ParsePushoverConfig error: %v", err)
 	}
@@ -460,10 +471,10 @@ func TestParsePushoverConfig_HappyPath(t *testing.T) {
 }
 
 func TestParseRocketChatConfig_HappyPath(t *testing.T) {
-	t.Setenv("IW_RC", "tok")
+	f := writeSecretFile(t, "tok")
 	cfg, err := ParseRocketChatConfig(map[string]string{
 		"server_url": "chat.example.com", "scheme": "https",
-		"user_id": "u1", "token_env": "IW_RC", "channel": "general, alerts",
+		"user_id": "u1", "token_file": f, "channel": "general, alerts",
 	})
 	if err != nil {
 		t.Fatalf("ParseRocketChatConfig error: %v", err)
@@ -477,9 +488,9 @@ func TestParseRocketChatConfig_HappyPath(t *testing.T) {
 }
 
 func TestParseRocketChatConfig_DefaultScheme(t *testing.T) {
-	t.Setenv("IW_RC", "tok")
+	f := writeSecretFile(t, "tok")
 	cfg, err := ParseRocketChatConfig(map[string]string{
-		"server_url": "chat.example.com", "user_id": "u1", "token_env": "IW_RC", "channel": "general",
+		"server_url": "chat.example.com", "user_id": "u1", "token_file": f, "channel": "general",
 	})
 	if err != nil {
 		t.Fatalf("ParseRocketChatConfig error: %v", err)
@@ -489,30 +500,31 @@ func TestParseRocketChatConfig_DefaultScheme(t *testing.T) {
 	}
 }
 
-// TestBuild_NewServices constructs the adapters that perform no network I/O at
-// build time. rocketchat and mattermost (login mode) authenticate against their
-// server during construction, so they are exercised only via Parse*Config tests.
-func TestBuild_NewServices(t *testing.T) {
+// TestBuild_ConstructOnly builds adapters that perform no network I/O at
+// construction time. rocketchat and mattermost (login mode) authenticate
+// against their server during construction, so they are covered by
+// Parse*Config tests only.
+func TestBuild_ConstructOnly(t *testing.T) {
 	cases := []struct {
-		typ    string
-		params map[string]string
-		env    map[string]string
+		typ     string
+		params  map[string]string
+		secrets map[string]string // param key -> file content
 	}{
 		{
 			typ: "amazonsns",
 			params: map[string]string{
-				"access_key_id_env": "IW_AK", "secret_key_env": "IW_SK",
+				"access_key_id_file": "", "secret_key_file": "",
 				"region": "eu-west-1", "topic": "arn:1",
 			},
-			env: map[string]string{"IW_AK": "ak", "IW_SK": "sk"},
+			secrets: map[string]string{"access_key_id_file": "ak", "secret_key_file": "sk"},
 		},
 		{
 			typ: "matrix",
 			params: map[string]string{
 				"user_id": "@u:matrix.org", "room_id": "!r:matrix.org",
-				"home_server": "https://matrix.org", "access_token_env": "IW_MX",
+				"home_server": "https://matrix.org", "access_token_file": "",
 			},
-			env: map[string]string{"IW_MX": "tok"},
+			secrets: map[string]string{"access_token_file": "tok"},
 		},
 		{
 			typ:    "msteams",
@@ -521,29 +533,29 @@ func TestBuild_NewServices(t *testing.T) {
 		{
 			typ: "pagerduty",
 			params: map[string]string{
-				"token_env": "IW_PD", "from_address": "ops@example.com", "service": "P123",
+				"token_file": "", "from_address": "ops@example.com", "service": "P123",
 			},
-			env: map[string]string{"IW_PD": "routing"},
+			secrets: map[string]string{"token_file": "routing"},
 		},
 		{
-			typ:    "pushover",
-			params: map[string]string{"app_token_env": "IW_PO", "user": "u1"},
-			env:    map[string]string{"IW_PO": "app"},
+			typ:     "pushover",
+			params:  map[string]string{"app_token_file": "", "user": "u1"},
+			secrets: map[string]string{"app_token_file": "app"},
 		},
 		{
-			// mattermost personal-access-token mode: no network at build.
 			typ: "mattermost",
 			params: map[string]string{
-				"url": "https://mm.example.com", "channel": "c1", "token_env": "IW_MM",
+				"url": "https://mm.example.com", "channel": "c1", "token_file": "",
 			},
-			env: map[string]string{"IW_MM": "pat"},
+			secrets: map[string]string{"token_file": "pat"},
 		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.typ, func(t *testing.T) {
-			for k, v := range tc.env {
-				t.Setenv(k, v)
+			for key, val := range tc.secrets {
+				f := writeSecretFile(t, val)
+				tc.params[key] = f
 			}
 			n, err := notify.Build(tc.typ, tc.params)
 			if err != nil {

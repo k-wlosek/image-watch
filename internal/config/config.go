@@ -100,8 +100,8 @@ func DefaultConcurrencyConfig() ConcurrencyConfig {
 
 // RegistryAuthConfig configures credentials and TLS trust for one registry host.
 type RegistryAuthConfig struct {
-	UsernameEnv string
-	PasswordEnv string
+	UsernameFile string
+	PasswordFile string
 
 	// Scheme is the connection scheme: "https" (default) or "http" for
 	// registries that serve plaintext (an explicit, insecure opt-in).

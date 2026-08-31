@@ -2,10 +2,10 @@ package services
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/k-wlosek/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/secret"
 	nlib "github.com/nikoksr/notify"
 	"github.com/nikoksr/notify/service/pushover"
 )
@@ -28,13 +28,16 @@ type PushoverConfig struct {
 
 // ParsePushoverConfig extracts Pushover configuration from a params map.
 func ParsePushoverConfig(params map[string]string) (PushoverConfig, error) {
-	appTokenEnv := params["app_token_env"]
-	if appTokenEnv == "" {
-		return PushoverConfig{}, fmt.Errorf("pushover: app_token_env is required")
+	appTokenFile := params["app_token_file"]
+	if appTokenFile == "" {
+		return PushoverConfig{}, fmt.Errorf("pushover: app_token_file is required")
 	}
-	appToken := os.Getenv(appTokenEnv)
+	appToken, err := secret.ReadFile(appTokenFile)
+	if err != nil {
+		return PushoverConfig{}, fmt.Errorf("pushover: app_token_file: %w", err)
+	}
 	if appToken == "" {
-		return PushoverConfig{}, fmt.Errorf("pushover: env var %q is empty", appTokenEnv)
+		return PushoverConfig{}, fmt.Errorf("pushover: app_token_file is empty")
 	}
 
 	userStr := params["user"]

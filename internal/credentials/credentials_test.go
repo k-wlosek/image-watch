@@ -2,6 +2,8 @@ package credentials
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -12,6 +14,15 @@ type fakeSource struct {
 
 func (f fakeSource) Lookup(context.Context, string) (string, string, bool) {
 	return f.user, f.pass, f.ok
+}
+
+func writeSecretFile(t *testing.T, content string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func TestChain_FirstMatchWins(t *testing.T) {
@@ -42,12 +53,12 @@ func TestChain_Empty(t *testing.T) {
 	}
 }
 
-func TestEnvSource(t *testing.T) {
-	t.Setenv("TEST_REG_USER", "alice")
-	t.Setenv("TEST_REG_PASS", "secret")
+func TestFileSource(t *testing.T) {
+	userFile := writeSecretFile(t, "alice")
+	passFile := writeSecretFile(t, "secret")
 
-	e := EnvSource{Registries: map[string]RegistryAuth{
-		"ghcr.io": {UsernameEnv: "TEST_REG_USER", PasswordEnv: "TEST_REG_PASS"},
+	e := FileSource{Registries: map[string]RegistryAuth{
+		"ghcr.io": {UsernameFile: userFile, PasswordFile: passFile},
 	}}
 
 	u, p, ok := e.Lookup(context.Background(), "ghcr.io")
@@ -61,12 +72,12 @@ func TestEnvSource(t *testing.T) {
 	}
 }
 
-func TestEnvSource_EmptyEnvVarsNoMatch(t *testing.T) {
-	e := EnvSource{Registries: map[string]RegistryAuth{
-		"ghcr.io": {UsernameEnv: "UNSET_VAR_1", PasswordEnv: "UNSET_VAR_2"},
+func TestFileSource_MissingFilesNoMatch(t *testing.T) {
+	e := FileSource{Registries: map[string]RegistryAuth{
+		"ghcr.io": {UsernameFile: "/nonexistent/user", PasswordFile: "/nonexistent/pass"},
 	}}
 	_, _, ok := e.Lookup(context.Background(), "ghcr.io")
 	if ok {
-		t.Fatal("expected no match when neither env var is set")
+		t.Fatal("expected no match when neither file exists")
 	}
 }

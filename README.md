@@ -120,29 +120,29 @@ IMAGE_WATCH_LOG_FORMAT
 By default image-watch notifies to stdout. Each target is configured under
 `notifications.targets` with a `type` and a `params` map. Supported types:
 
-| Type         | Required params                                          | Optional params                                                                                          |
-| ------------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `stdout`     | _(none)_                                                 |                                                                                                          |
-| `ntfy`       | `topic`                                                  | `server_url`, `username_env`, `password_env`, `priority`, `title`                                        |
-| `webhook`    | `url`                                                    |                                                                                                          |
-| `discord`    | `token_env`, `channel_id`                                | `auth_method` (`bot` default, or `oauth2`)                                                               |
-| `slack`      | `token_env`, `channel`                                   |                                                                                                          |
-| `telegram`   | `token_env`, `chat_id`                                   |                                                                                                          |
-| `email`      | `smtp_host`, `from`, `to`                                | `smtp_port` (default 587), `username_env`, `password_env`                                                |
-| `amazonsns`  | `access_key_id_env`, `secret_key_env`, `region`, `topic` | `topic` is comma-separated SNS topic ARNs                                                                |
-| `matrix`     | `user_id`, `room_id`, `home_server`, `access_token_env`  | one room per target (set at construction)                                                                |
-| `mattermost` | `url`, `channel`                                         | `token_env` (personal access token) **or** `login_id_env` + `password_env`; `channel` is comma-separated |
-| `msteams`    | `webhook`                                                | `webhook` is comma-separated connector webhook URLs                                                      |
-| `pagerduty`  | `token_env`, `from_address`, `service`                   | `notification_type` (default `incident`); `service` is comma-separated service IDs                       |
-| `pushover`   | `app_token_env`, `user`                                  | `user` is comma-separated recipient keys                                                                 |
-| `rocketchat` | `server_url`, `user_id`, `token_env`, `channel`          | `scheme` (default `https`); `channel` is comma-separated                                                 |
+| Type         | Required params                                            | Optional params/Additional info                                                                             |
+| ------------ | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `stdout`     | _(none)_                                                   |                                                                                                             |
+| `ntfy`       | `topic`                                                    | `server_url`, `username_file`, `password_file`, `priority`, `title`                                         |
+| `webhook`    | `url`                                                      |                                                                                                             |
+| `discord`    | `token_file`, `channel_id`                                 | `auth_method` (`bot` default, or `oauth2`)                                                                  |
+| `slack`      | `token_file`, `channel`                                    |                                                                                                             |
+| `telegram`   | `token_file`, `chat_id`                                    |                                                                                                             |
+| `email`      | `smtp_host`, `from`, `to`                                  | `smtp_port` (default 587), `username_file`, `password_file`                                                 |
+| `amazonsns`  | `access_key_id_file`, `secret_key_file`, `region`, `topic` | `topic` is comma-separated SNS topic ARNs                                                                   |
+| `matrix`     | `user_id`, `room_id`, `home_server`, `access_token_file`   | one room per target                                                                                         |
+| `mattermost` | `url`, `channel`                                           | `token_file` (personal access token) **or** `login_id_file` + `password_file`; `channel` is comma-separated |
+| `msteams`    | `webhook`                                                  | `webhook` is comma-separated connector webhook URLs                                                         |
+| `pagerduty`  | `token_file`, `from_address`, `service`                    | `notification_type` (default `incident`); `service` is comma-separated service IDs                          |
+| `pushover`   | `app_token_file`, `user`                                   | `user` is comma-separated recipient keys                                                                    |
+| `rocketchat` | `server_url`, `user_id`, `token_file`, `channel`           | `scheme` (default `https`); `channel` is comma-separated                                                    |
 
 Multi-target params (`channel_id`, `channel`, `to`, `topic`, `webhook`, `service`, `user`) accept comma-separated lists
 to send the same notification to multiple destinations.
 
-Env-variant params (`*_env`) hold the **name** of an environment variable whose
-value is resolved at runtime - the env var itself is never stored in the config
-file. See the [example config](deploy/docker/config.yaml.example) for usage.
+Secret params (`*_file`) hold the **path** to a file containing the secret value
+(e.g. Docker secrets mounted at `/run/secrets/`). Trailing whitespace is trimmed.
+See the [example config](deploy/docker/config.yaml.example) for usage.
 
 The webhook target POSTs one JSON payload per event:
 

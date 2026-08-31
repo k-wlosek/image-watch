@@ -2,10 +2,10 @@ package services
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/k-wlosek/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/secret"
 	nlib "github.com/nikoksr/notify"
 	"github.com/nikoksr/notify/service/slack"
 )
@@ -28,13 +28,16 @@ type SlackConfig struct {
 
 // ParseSlackConfig extracts Slack configuration from a params map.
 func ParseSlackConfig(params map[string]string) (SlackConfig, error) {
-	tokenEnv := params["token_env"]
-	if tokenEnv == "" {
-		return SlackConfig{}, fmt.Errorf("slack: token_env is required")
+	tokenFile := params["token_file"]
+	if tokenFile == "" {
+		return SlackConfig{}, fmt.Errorf("slack: token_file is required")
 	}
-	token := os.Getenv(tokenEnv)
+	token, err := secret.ReadFile(tokenFile)
+	if err != nil {
+		return SlackConfig{}, fmt.Errorf("slack: token_file: %w", err)
+	}
 	if token == "" {
-		return SlackConfig{}, fmt.Errorf("slack: env var %q is empty", tokenEnv)
+		return SlackConfig{}, fmt.Errorf("slack: token_file is empty")
 	}
 	channelStr := params["channel"]
 	if channelStr == "" {

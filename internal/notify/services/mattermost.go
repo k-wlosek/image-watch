@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/k-wlosek/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/secret"
 	nlib "github.com/nikoksr/notify"
 	"github.com/nikoksr/notify/service/mattermost"
 )
@@ -48,38 +48,47 @@ func ParseMattermostConfig(params map[string]string) (MattermostConfig, error) {
 		channels[i] = strings.TrimSpace(channels[i])
 	}
 
-	loginEnv := params["login_id_env"]
-	passwordEnv := params["password_env"]
-	tokenEnv := params["token_env"]
+	loginFile := params["login_id_file"]
+	passwordFile := params["password_file"]
+	tokenFile := params["token_file"]
 
 	// Exactly one auth mode must be provided.
 	switch {
-	case tokenEnv != "" && (loginEnv != "" || passwordEnv != ""):
-		return MattermostConfig{}, fmt.Errorf("mattermost: provide token_env OR login_id_env/password_env, not both")
-	case tokenEnv == "" && loginEnv == "":
-		return MattermostConfig{}, fmt.Errorf("mattermost: token_env or login_id_env is required")
-	case tokenEnv == "" && passwordEnv == "":
-		return MattermostConfig{}, fmt.Errorf("mattermost: password_env is required with login_id_env")
+	case tokenFile != "" && (loginFile != "" || passwordFile != ""):
+		return MattermostConfig{}, fmt.Errorf("mattermost: provide token_file OR login_id_file/password_file, not both")
+	case tokenFile == "" && loginFile == "":
+		return MattermostConfig{}, fmt.Errorf("mattermost: token_file or login_id_file is required")
+	case tokenFile == "" && passwordFile == "":
+		return MattermostConfig{}, fmt.Errorf("mattermost: password_file is required with login_id_file")
 	}
 
 	cfg := MattermostConfig{URL: url, ChannelIDs: channels}
 
-	if tokenEnv != "" {
-		token := os.Getenv(tokenEnv)
+	if tokenFile != "" {
+		token, err := secret.ReadFile(tokenFile)
+		if err != nil {
+			return MattermostConfig{}, fmt.Errorf("mattermost: token_file: %w", err)
+		}
 		if token == "" {
-			return MattermostConfig{}, fmt.Errorf("mattermost: env var %q is empty", tokenEnv)
+			return MattermostConfig{}, fmt.Errorf("mattermost: token_file is empty")
 		}
 		cfg.Token = token
 		return cfg, nil
 	}
 
-	loginID := os.Getenv(loginEnv)
-	if loginID == "" {
-		return MattermostConfig{}, fmt.Errorf("mattermost: env var %q is empty", loginEnv)
+	loginID, err := secret.ReadFile(loginFile)
+	if err != nil {
+		return MattermostConfig{}, fmt.Errorf("mattermost: login_id_file: %w", err)
 	}
-	password := os.Getenv(passwordEnv)
+	if loginID == "" {
+		return MattermostConfig{}, fmt.Errorf("mattermost: login_id_file is empty")
+	}
+	password, err := secret.ReadFile(passwordFile)
+	if err != nil {
+		return MattermostConfig{}, fmt.Errorf("mattermost: password_file: %w", err)
+	}
 	if password == "" {
-		return MattermostConfig{}, fmt.Errorf("mattermost: env var %q is empty", passwordEnv)
+		return MattermostConfig{}, fmt.Errorf("mattermost: password_file is empty")
 	}
 	cfg.LoginID = loginID
 	cfg.Password = password

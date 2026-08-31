@@ -2,10 +2,10 @@ package services
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/k-wlosek/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/secret"
 	nlib "github.com/nikoksr/notify"
 	"github.com/nikoksr/notify/service/pagerduty"
 )
@@ -30,13 +30,16 @@ type PagerDutyConfig struct {
 
 // ParsePagerDutyConfig extracts PagerDuty configuration from a params map.
 func ParsePagerDutyConfig(params map[string]string) (PagerDutyConfig, error) {
-	tokenEnv := params["token_env"]
-	if tokenEnv == "" {
-		return PagerDutyConfig{}, fmt.Errorf("pagerduty: token_env is required")
+	tokenFile := params["token_file"]
+	if tokenFile == "" {
+		return PagerDutyConfig{}, fmt.Errorf("pagerduty: token_file is required")
 	}
-	token := os.Getenv(tokenEnv)
+	token, err := secret.ReadFile(tokenFile)
+	if err != nil {
+		return PagerDutyConfig{}, fmt.Errorf("pagerduty: token_file: %w", err)
+	}
 	if token == "" {
-		return PagerDutyConfig{}, fmt.Errorf("pagerduty: env var %q is empty", tokenEnv)
+		return PagerDutyConfig{}, fmt.Errorf("pagerduty: token_file is empty")
 	}
 
 	fromAddress := params["from_address"]

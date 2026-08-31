@@ -2,9 +2,9 @@ package services
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/k-wlosek/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/secret"
 	nlib "github.com/nikoksr/notify"
 	"github.com/nikoksr/notify/service/matrix"
 	"maunium.net/go/mautrix/id"
@@ -43,13 +43,16 @@ func ParseMatrixConfig(params map[string]string) (MatrixConfig, error) {
 	if homeServer == "" {
 		return MatrixConfig{}, fmt.Errorf("matrix: home_server is required")
 	}
-	tokenEnv := params["access_token_env"]
-	if tokenEnv == "" {
-		return MatrixConfig{}, fmt.Errorf("matrix: access_token_env is required")
+	tokenFile := params["access_token_file"]
+	if tokenFile == "" {
+		return MatrixConfig{}, fmt.Errorf("matrix: access_token_file is required")
 	}
-	token := os.Getenv(tokenEnv)
+	token, err := secret.ReadFile(tokenFile)
+	if err != nil {
+		return MatrixConfig{}, fmt.Errorf("matrix: access_token_file: %w", err)
+	}
 	if token == "" {
-		return MatrixConfig{}, fmt.Errorf("matrix: env var %q is empty", tokenEnv)
+		return MatrixConfig{}, fmt.Errorf("matrix: access_token_file is empty")
 	}
 	return MatrixConfig{UserID: userID, RoomID: roomID, HomeServer: homeServer, AccessToken: token}, nil
 }
