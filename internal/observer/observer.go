@@ -461,14 +461,14 @@ func (o *Observer) detectDigestDriftEvents(ctx context.Context, reg registry.Reg
 
 	ref := image.Reference{Registry: key.Registry, Repository: key.Repository, Tag: &key.Tag}
 	events := make([]event.Event, 0, len(distinct))
-	for i, dig := range distinct {
+	for i := range distinct {
 		ev := event.Event{
 			Timestamp:       o.now(),
 			Image:           ref,
 			Type:            digestEventType(tv),
 			CurrentTag:      key.Tag,
-			CurrentDigest:   dig,
-			CandidateDigest: served,
+			CurrentDigest:   platformDigest,
+			CandidateDigest: platformDigest,
 			Platform:        key.Platform,
 		}
 		if enriched[i] {

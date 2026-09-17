@@ -148,7 +148,7 @@ func TestBuildNotification_DedupSuppressesAlreadyNotified(t *testing.T) {
 	}
 }
 
-func TestBuildNotification_ChangedCandidateIsNotSuppressed(t *testing.T) {
+func TestBuildNotification_ChangedCandidateIsSuppressed(t *testing.T) {
 	results := []observer.Result{sampleResult(nil)}
 	store := state.NewMemoryStore()
 
@@ -157,8 +157,8 @@ func TestBuildNotification_ChangedCandidateIsNotSuppressed(t *testing.T) {
 
 	results[0].Events[0].CandidateTag = "1.2.5"
 	second := BuildNotification(context.Background(), results, store)
-	if len(second.Items) != 1 {
-		t.Fatalf("expected the new candidate to produce a fresh notification, got %d items", len(second.Items))
+	if len(second.Items) != 0 {
+		t.Errorf("expected the enriched-only change to be deduped, got %d items", len(second.Items))
 	}
 }
 

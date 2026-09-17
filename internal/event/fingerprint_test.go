@@ -25,12 +25,12 @@ func TestFingerprint_IdenticalEventsMatch(t *testing.T) {
 	}
 }
 
-func TestFingerprint_DifferentCandidateTagDiffers(t *testing.T) {
+func TestFingerprint_DifferentCandidateTagDoesNotDiffer(t *testing.T) {
 	a := baseEvent()
 	b := baseEvent()
 	b.CandidateTag = "1.25.5"
-	if Fingerprint(a) == Fingerprint(b) {
-		t.Errorf("expected different candidate tags to produce different fingerprints")
+	if Fingerprint(a) != Fingerprint(b) {
+		t.Errorf("expected candidate tag to not affect fingerprint (enrichment is metadata, not identity)")
 	}
 }
 
@@ -45,15 +45,15 @@ func TestFingerprint_DifferentDigestDiffers(t *testing.T) {
 	}
 }
 
-func TestFingerprint_DifferentCurrentDigestDiffers(t *testing.T) {
+func TestFingerprint_DifferentCurrentDigestDoesNotDiffer(t *testing.T) {
 	a := baseEvent()
 	a.Type = TagMutated
 	a.CandidateDigest = "sha256:YYYY"
 	b := a
 	a.CurrentDigest = "sha256:XXXX"
 	b.CurrentDigest = "sha256:ZZZZ"
-	if Fingerprint(a) == Fingerprint(b) {
-		t.Errorf("expected different current digests to produce different fingerprints (drift identity)")
+	if Fingerprint(a) != Fingerprint(b) {
+		t.Errorf("expected different current digests to not affect fingerprint (previous state is transient)")
 	}
 }
 

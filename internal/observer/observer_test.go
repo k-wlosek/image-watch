@@ -202,8 +202,8 @@ func TestDigestDrift_OpaqueBackfillFirstRun(t *testing.T) {
 	if ev == nil {
 		t.Fatalf("expected TAG_CHANGED drift on first run behind, events: %+v", results[0].Events)
 	}
-	if ev.CurrentDigest != "sha256:old" || ev.CandidateDigest != "sha256:new" {
-		t.Errorf("drift digests = %s -> %s, want sha256:old -> sha256:new", ev.CurrentDigest, ev.CandidateDigest)
+	if ev.CurrentDigest != "sha256:new" || ev.CandidateDigest != "sha256:new" {
+		t.Errorf("drift digests = %s -> %s, want sha256:new -> sha256:new (platform-stable fingerprint)", ev.CurrentDigest, ev.CandidateDigest)
 	}
 	if ev.CandidateTag != "1.2.4" {
 		t.Errorf("expected enrichment to infer 1.2.4, got %q", ev.CandidateTag)
@@ -231,8 +231,8 @@ func TestDigestDrift_OpaqueEnrichmentUsesPlatformDigest(t *testing.T) {
 	if ev == nil {
 		t.Fatalf("expected TAG_CHANGED drift, events: %+v", results[0].Events)
 	}
-	if ev.CandidateDigest != "sha256:index-X" {
-		t.Errorf("CandidateDigest = %q, want index digest sha256:index-X (index-level comparison)", ev.CandidateDigest)
+	if ev.CandidateDigest != "sha256:platform-Y" {
+		t.Errorf("CandidateDigest = %q, want platform digest sha256:platform-Y (stable fingerprint)", ev.CandidateDigest)
 	}
 	if ev.CandidateTag != "1.2.4" {
 		t.Errorf("expected enrichment over the platform digest to infer 1.2.4, got %q", ev.CandidateTag)
@@ -280,8 +280,8 @@ func TestDigestDrift_OpaqueMidWatchNewStaleContainer(t *testing.T) {
 	if ev == nil {
 		t.Fatalf("expected TAG_CHANGED drift for new stale container, events: %+v", results[0].Events)
 	}
-	if ev.CurrentDigest != "sha256:stale-old" || ev.CandidateDigest != "sha256:new" {
-		t.Errorf("drift digests = %s -> %s, want sha256:stale-old -> sha256:new", ev.CurrentDigest, ev.CandidateDigest)
+	if ev.CurrentDigest != "sha256:new" || ev.CandidateDigest != "sha256:new" {
+		t.Errorf("drift digests = %s -> %s, want sha256:new -> sha256:new (platform-stable fingerprint)", ev.CurrentDigest, ev.CandidateDigest)
 	}
 }
 
@@ -300,8 +300,8 @@ func TestDigestDrift_VersionableFirstRun(t *testing.T) {
 	if ev == nil {
 		t.Fatalf("expected TAG_MUTATED drift on first run behind, events: %+v", results[0].Events)
 	}
-	if ev.CurrentDigest != "sha256:old" || ev.CandidateDigest != "sha256:new" {
-		t.Errorf("drift digests = %s -> %s, want sha256:old -> sha256:new", ev.CurrentDigest, ev.CandidateDigest)
+	if ev.CurrentDigest != "sha256:new" || ev.CandidateDigest != "sha256:new" {
+		t.Errorf("drift digests = %s -> %s, want sha256:new -> sha256:new (platform-stable fingerprint)", ev.CurrentDigest, ev.CandidateDigest)
 	}
 }
 
