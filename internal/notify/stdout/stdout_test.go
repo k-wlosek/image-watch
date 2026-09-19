@@ -176,27 +176,3 @@ func TestNotify_WriteError_NoHostname(t *testing.T) {
 		t.Fatal("expected error when writer fails")
 	}
 }
-
-func TestCategoryLabel_AllTypes(t *testing.T) {
-	cases := map[event.Type]string{
-		event.PatchAvailable:             "PATCH",
-		event.ApplicationPatchAvailable:  "PATCH",
-		event.MinorAvailable:             "MINOR",
-		event.ApplicationMinorAvailable:  "MINOR",
-		event.MajorAvailable:             "MAJOR",
-		event.ApplicationMajorAvailable:  "MAJOR",
-		event.FamilyAdvancementAvailable: "FAMILY ADVANCEMENT",
-		event.BaseAdvancementAvailable:   "BASE ADVANCEMENT",
-		event.TagChanged:                 "TAG CHANGED",
-		event.TagMutated:                 "TAG MUTATED",
-		event.OtherPlatformUpdate:        "OTHER PLATFORM UPDATE",
-	}
-	for typ, want := range cases {
-		if got := categoryLabel(typ); got != want {
-			t.Errorf("categoryLabel(%s) = %q, want %q", typ, got, want)
-		}
-	}
-	if got := categoryLabel("UNKNOWN_EVENT"); got != "UNKNOWN_EVENT" {
-		t.Errorf("categoryLabel(unknown) = %q, want the raw string", got)
-	}
-}

@@ -5,23 +5,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/k-wlosek/image-watch/internal/event"
 	"github.com/k-wlosek/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/secret"
 )
-
-func writeSecretFile(t *testing.T, content string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "secret.txt")
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
 
 func TestNotify_SendsToConfiguredTopic(t *testing.T) {
 	var gotPath, gotTitle, gotBody string
@@ -197,8 +187,8 @@ func TestParseConfig_MissingTopicReturnsError(t *testing.T) {
 }
 
 func TestParseConfig_AllParams(t *testing.T) {
-	userFile := writeSecretFile(t, "alice")
-	passFile := writeSecretFile(t, "s3cret")
+	userFile := secret.WriteFile(t, "alice")
+	passFile := secret.WriteFile(t, "s3cret")
 
 	cfg, err := ParseConfig(map[string]string{
 		"topic":         "my-topic",

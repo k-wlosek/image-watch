@@ -2,9 +2,9 @@ package credentials
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
+
+	"github.com/k-wlosek/image-watch/internal/secret"
 )
 
 type fakeSource struct {
@@ -14,15 +14,6 @@ type fakeSource struct {
 
 func (f fakeSource) Lookup(context.Context, string) (string, string, bool) {
 	return f.user, f.pass, f.ok
-}
-
-func writeSecretFile(t *testing.T, content string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "secret.txt")
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return path
 }
 
 func TestChain_FirstMatchWins(t *testing.T) {
@@ -54,8 +45,8 @@ func TestChain_Empty(t *testing.T) {
 }
 
 func TestFileSource(t *testing.T) {
-	userFile := writeSecretFile(t, "alice")
-	passFile := writeSecretFile(t, "secret")
+	userFile := secret.WriteFile(t, "alice")
+	passFile := secret.WriteFile(t, "secret")
 
 	e := FileSource{Registries: map[string]RegistryAuth{
 		"ghcr.io": {UsernameFile: userFile, PasswordFile: passFile},

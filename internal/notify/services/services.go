@@ -4,7 +4,6 @@ package services
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/k-wlosek/image-watch/internal/notify"
 	"github.com/k-wlosek/image-watch/internal/notify/stdout"
@@ -30,7 +29,7 @@ func (n *Notifier) Notify(ctx context.Context, note notify.Notification) error {
 	}
 
 	subject := formatSubject(note)
-	body := formatBody(note)
+	body := stdout.PlainText(note)
 
 	return n.notify.Send(ctx, subject, body)
 }
@@ -45,11 +44,4 @@ func formatSubject(note notify.Notification) string {
 		return fmt.Sprintf("Image Watch (%s) - %d %s", note.Hostname, count, update)
 	}
 	return fmt.Sprintf("Image Watch - %d %s", count, update)
-}
-
-func formatBody(note notify.Notification) string {
-	var b strings.Builder
-	sn := &stdout.Notifier{Writer: &b}
-	_ = sn.Notify(context.Background(), note)
-	return b.String()
 }

@@ -59,3 +59,27 @@ type Event struct {
 	// CombinedCandidate is the full tag after combining application and base candidates.
 	CombinedCandidate string
 }
+
+// CategoryLabel returns a short human-readable label for the event type.
+func CategoryLabel(t Type) string {
+	switch t {
+	case PatchAvailable, ApplicationPatchAvailable:
+		return "PATCH"
+	case MinorAvailable, ApplicationMinorAvailable:
+		return "MINOR"
+	case MajorAvailable, ApplicationMajorAvailable:
+		return "MAJOR"
+	case FamilyAdvancementAvailable:
+		return "FAMILY ADVANCEMENT"
+	case BaseAdvancementAvailable:
+		return "BASE ADVANCEMENT"
+	case TagChanged:
+		return "TAG CHANGED"
+	case TagMutated:
+		return "TAG MUTATED"
+	case OtherPlatformUpdate:
+		return "OTHER PLATFORM UPDATE"
+	default:
+		return string(t)
+	}
+}

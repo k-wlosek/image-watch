@@ -98,7 +98,7 @@ func (n *Notifier) Notify(ctx context.Context, note notify.Notification) error {
 	}
 	url := strings.TrimSuffix(server, "/") + "/" + n.cfg.Topic
 
-	body := formatBody(note)
+	body := stdout.PlainText(note)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(body))
 	if err != nil {
@@ -131,12 +131,4 @@ func (n *Notifier) Notify(ctx context.Context, note notify.Notification) error {
 		return fmt.Errorf("ntfy: unexpected status %d", resp.StatusCode)
 	}
 	return nil
-}
-
-// formatBody reuses the stdout notifier's batch-summary formatting.
-func formatBody(note notify.Notification) string {
-	var b strings.Builder
-	sn := &stdout.Notifier{Writer: &b}
-	_ = sn.Notify(context.Background(), note)
-	return b.String()
 }

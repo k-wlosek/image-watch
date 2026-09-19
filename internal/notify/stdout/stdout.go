@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/k-wlosek/image-watch/internal/event"
 	"github.com/k-wlosek/image-watch/internal/notify"
@@ -44,7 +45,7 @@ func (n *Notifier) Notify(_ context.Context, note notify.Notification) error {
 		}
 	}
 	for _, item := range note.Items {
-		if _, err := fmt.Fprintln(w, categoryLabel(item.Type)); err != nil {
+		if _, err := fmt.Fprintln(w, event.CategoryLabel(item.Type)); err != nil {
 			return err
 		}
 		switch item.Type {
@@ -90,25 +91,10 @@ func (n *Notifier) Notify(_ context.Context, note notify.Notification) error {
 	return nil
 }
 
-func categoryLabel(t event.Type) string {
-	switch t {
-	case event.PatchAvailable, event.ApplicationPatchAvailable:
-		return "PATCH"
-	case event.MinorAvailable, event.ApplicationMinorAvailable:
-		return "MINOR"
-	case event.MajorAvailable, event.ApplicationMajorAvailable:
-		return "MAJOR"
-	case event.FamilyAdvancementAvailable:
-		return "FAMILY ADVANCEMENT"
-	case event.BaseAdvancementAvailable:
-		return "BASE ADVANCEMENT"
-	case event.TagChanged:
-		return "TAG CHANGED"
-	case event.TagMutated:
-		return "TAG MUTATED"
-	case event.OtherPlatformUpdate:
-		return "OTHER PLATFORM UPDATE"
-	default:
-		return string(t)
-	}
+// PlainText returns a human-readable text representation of a Notification.
+func PlainText(note notify.Notification) string {
+	var b strings.Builder
+	sn := &Notifier{Writer: &b}
+	_ = sn.Notify(context.Background(), note)
+	return b.String()
 }

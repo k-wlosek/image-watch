@@ -125,7 +125,8 @@ By default image-watch notifies to stdout. Each target is configured under
 | `stdout`     | _(none)_                                                   |                                                                                                             |
 | `ntfy`       | `topic`                                                    | `server_url`, `username_file`, `password_file`, `priority`, `title`                                         |
 | `webhook`    | `url`                                                      |                                                                                                             |
-| `discord`    | `token_file`, `channel_id`                                 | `auth_method` (`bot` default, or `oauth2`)                                                                  |
+| `discord`    | `webhook_url_file`                                         | `username`, `render_embeds`, `color`, `footer`, `title`, `description` (Go templates)                       |
+| `gotify`     | `server_url`, `token_file`                                 | `priority` (default `5`)                                                                                    |
 | `slack`      | `token_file`, `channel`                                    |                                                                                                             |
 | `telegram`   | `token_file`, `chat_id`                                    |                                                                                                             |
 | `email`      | `smtp_host`, `from`, `to`                                  | `smtp_port` (default 587), `username_file`, `password_file`                                                 |

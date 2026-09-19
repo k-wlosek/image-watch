@@ -21,17 +21,9 @@ import (
 	"github.com/k-wlosek/image-watch/internal/policy"
 	"github.com/k-wlosek/image-watch/internal/registry/distribution"
 	"github.com/k-wlosek/image-watch/internal/runtime/docker"
+	"github.com/k-wlosek/image-watch/internal/secret"
 	"github.com/k-wlosek/image-watch/internal/state"
 )
-
-func writeSecretFile(t *testing.T, content string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "secret.txt")
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
 
 func TestBuildNotifiers_DefaultsToStdout(t *testing.T) {
 	cfg := config.Default()
@@ -46,8 +38,8 @@ func TestBuildNotifiers_DefaultsToStdout(t *testing.T) {
 }
 
 func TestBuildNotifiers_Targets(t *testing.T) {
-	userFile := writeSecretFile(t, "user")
-	passFile := writeSecretFile(t, "pass")
+	userFile := secret.WriteFile(t, "user")
+	passFile := secret.WriteFile(t, "pass")
 
 	cfg := config.Default()
 	cfg.Notifications.Targets = []config.NotificationTarget{
@@ -90,8 +82,8 @@ func TestBuildNotifiers_SkipsUnknownTypes(t *testing.T) {
 }
 
 func TestBuildCredentialChain(t *testing.T) {
-	userFile := writeSecretFile(t, "reguser")
-	passFile := writeSecretFile(t, "regpass")
+	userFile := secret.WriteFile(t, "reguser")
+	passFile := secret.WriteFile(t, "regpass")
 
 	cfg := config.Default()
 	cfg.Registries["ghcr.io"] = config.RegistryAuthConfig{

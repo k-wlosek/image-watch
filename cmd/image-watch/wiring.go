@@ -23,6 +23,8 @@ import (
 	"github.com/k-wlosek/image-watch/internal/state"
 
 	// Register notification services via init().
+	_ "github.com/k-wlosek/image-watch/internal/notify/discord"
+	_ "github.com/k-wlosek/image-watch/internal/notify/gotify"
 	_ "github.com/k-wlosek/image-watch/internal/notify/ntfy"
 	_ "github.com/k-wlosek/image-watch/internal/notify/services"
 	_ "github.com/k-wlosek/image-watch/internal/notify/webhook"

@@ -33,9 +33,18 @@ notifications:
         url: https://example.com/image-watch
     # - type: discord
     #   params:
-    #     token_file: /run/secrets/discord_token
-    #     channel_id: "123456789" # comma-separated for multiple channels
-    #     auth_method: bot # "bot" (default) or "oauth2"
+    #     webhook_url_file: /run/secrets/discord_webhook_url
+    #     username: "Image Watch" # optional
+    #     render_embeds: "true" # optional, set to "false" for plain text
+    #     color: "0x2ECC71" # optional, hex color
+    #     footer: "Image Watch" # optional, empty = no footer
+    #     title: "{{.Image}} - {{.Host}}" # optional, Go template
+    #     description: "" # optional, Go template; default shows event/version/digests/containers
+    # - type: gotify
+    #   params:
+    #     server_url: https://gotify.example.com
+    #     token_file: /run/secrets/gotify_token
+    #     priority: "5" # optional
     # - type: slack
     #   params:
     #     token_file: /run/secrets/slack_token

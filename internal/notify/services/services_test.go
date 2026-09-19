@@ -7,6 +7,7 @@ import (
 
 	"github.com/k-wlosek/image-watch/internal/event"
 	"github.com/k-wlosek/image-watch/internal/notify"
+	"github.com/k-wlosek/image-watch/internal/notify/stdout"
 	nlib "github.com/nikoksr/notify"
 )
 
@@ -48,7 +49,7 @@ func TestFormatBody_ContainsImageAndCategory(t *testing.T) {
 	note := notify.Notification{Items: []notify.Item{
 		{Image: "docker.io/lib/nginx", Type: event.PatchAvailable, CurrentTag: "1", CandidateTag: "2"},
 	}}
-	got := formatBody(note)
+	got := stdout.PlainText(note)
 	if !strings.Contains(got, "nginx") {
 		t.Errorf("expected body to contain image name, got:\n%s", got)
 	}
