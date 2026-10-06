@@ -2,7 +2,7 @@ module github.com/k-wlosek/image-watch
 
 go 1.26.6
 
-require modernc.org/sqlite v1.59.0
+require modernc.org/sqlite v1.60.0
 
 require github.com/prometheus/client_golang v1.24.1
 
@@ -71,7 +71,7 @@ require (
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
-	modernc.org/libc v1.76.0 // indirect
+	modernc.org/libc v1.77.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
 )
