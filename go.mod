@@ -8,7 +8,7 @@ require github.com/prometheus/client_golang v1.24.1
 
 require github.com/goccy/go-yaml v1.19.2
 
-require golang.org/x/sync v0.23.0
+require golang.org/x/sync v0.24.0
 
 require github.com/nikoksr/notify v1.6.0
 
