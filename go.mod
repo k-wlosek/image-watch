@@ -2,7 +2,7 @@ module github.com/k-wlosek/image-watch
 
 go 1.26.6
 
-require modernc.org/sqlite v1.61.0
+require modernc.org/sqlite v1.61.1
 
 require github.com/prometheus/client_golang v1.25.0
 
