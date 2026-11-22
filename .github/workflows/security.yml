@@ -27,7 +27,31 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Run govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 -format sarif ./... > govulncheck.sarif
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 -format sarif ./... > govulncheck.sarif || true
+          python3 - <<'PY'
+          import json
+
+          path = "govulncheck.sarif"
+          with open(path) as report:
+              sarif = json.load(report)
+
+          for run in sarif.get("runs", []):
+              for result in run.get("results", []):
+                  stacks = result.get("stacks")
+                  if stacks:
+                      unique = []
+                      seen = set()
+                      for stack in stacks:
+                          key = json.dumps(stack, sort_keys=True)
+                          if key not in seen:
+                              seen.add(key)
+                              unique.append(stack)
+                      result["stacks"] = unique
+
+          with open(path, "w") as report:
+              json.dump(sarif, report)
+          PY
         continue-on-error: true
       - name: Upload SARIF report
         uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
